@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { exportProjectJSON, importProjectJSON } from '../../services/storage';
-import { supabase } from '../../services/supabase';
 
 export function Toolbar() {
   const projects = useFlowStore((s) => s.projects);
@@ -12,8 +11,10 @@ export function Toolbar() {
   const deleteProject = useFlowStore((s) => s.deleteProject);
   const save = useFlowStore((s) => s.save);
   const loadData = useFlowStore((s) => s.loadData);
-  const syncing = useFlowStore((s) => s.syncing);
-  const syncError = useFlowStore((s) => s.syncError);
+  const undo = useFlowStore((s) => s.undo);
+  const redo = useFlowStore((s) => s.redo);
+  const canUndo = useFlowStore((s) => s.past.length > 0);
+  const canRedo = useFlowStore((s) => s.future.length > 0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -78,6 +79,37 @@ export function Toolbar() {
       {/* Row 1: Actions */}
       <div className="flex items-center gap-3 px-6 pt-4 pb-3">
         <button
+          onClick={undo}
+          disabled={!canUndo}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+            canUndo
+              ? 'text-slate-300 bg-slate-800 hover:bg-slate-700'
+              : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+          }`}
+          title="撤销 (⌘Z)"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+          </svg>
+          撤销
+        </button>
+        <button
+          onClick={redo}
+          disabled={!canRedo}
+          className={`flex items-center gap-1.5 px-3 py-2.5 text-sm rounded-lg transition-colors ${
+            canRedo
+              ? 'text-slate-300 bg-slate-800 hover:bg-slate-700'
+              : 'text-slate-600 bg-slate-800/50 cursor-not-allowed'
+          }`}
+          title="重做 (⌘⇧Z)"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 10H11a5 5 0 00-5 5v2M21 10l-4-4M21 10l-4 4" />
+          </svg>
+          重做
+        </button>
+        <div className="w-px h-6 bg-slate-700/50" />
+        <button
           onClick={handleSave}
           className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg transition-colors ${
             saveStatus === 'saved'
@@ -112,16 +144,6 @@ export function Toolbar() {
           导入
         </button>
         <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
-        {supabase && (
-          <div className="ml-auto flex items-center gap-2 text-xs">
-            <span className={`inline-block w-2 h-2 rounded-full ${
-              syncing ? 'bg-amber-400 animate-pulse' : syncError ? 'bg-red-400' : 'bg-emerald-400'
-            }`} />
-            <span className="text-slate-500">
-              {syncing ? '同步中...' : syncError ? '同步失败（本地已保存）' : '已同步'}
-            </span>
-          </div>
-        )}
       </div>
 
       {/* Row 2: Project tabs */}

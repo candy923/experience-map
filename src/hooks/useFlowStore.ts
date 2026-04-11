@@ -9,15 +9,16 @@ import {
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData } from '../types';
-import {
-  loadProjectData,
-  loadProjectDataAsync,
-  saveToLocalStorage,
-  saveToSupabase,
-  deleteProjectFromSupabase,
-} from '../services/storage';
-import { supabase } from '../services/supabase';
+import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
+
+interface HistoryEntry {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+let _isDragging = false;
+const MAX_HISTORY = 50;
 
 interface FlowStore {
   projects: FlowProject[];
@@ -28,8 +29,8 @@ interface FlowStore {
   chatMessages: ChatMessage[];
   editingNodeId: string | null;
   ready: boolean;
-  syncing: boolean;
-  syncError: boolean;
+  past: HistoryEntry[];
+  future: HistoryEntry[];
 
   getActiveProject: () => FlowProject;
 
@@ -51,6 +52,9 @@ interface FlowStore {
   deleteNode: (nodeId: string) => void;
   deleteEdge: (edgeId: string) => void;
   updateEdgeLabel: (edgeId: string, label: string) => void;
+
+  undo: () => void;
+  redo: () => void;
 
   setHighlightedPath: (path: string[]) => void;
   clearHighlight: () => void;
@@ -76,9 +80,16 @@ function updateActiveProject(
   return projects.map((p) => (p.id === activeId ? updater(p) : p));
 }
 
-let _ignoreNextRealtimeUpdate = false;
+export const useFlowStore = create<FlowStore>((set, get) => {
+  const pushHistory = () => {
+    const project = get().getActiveProject();
+    set({
+      past: [...get().past.slice(-(MAX_HISTORY - 1)), { nodes: [...project.nodes], edges: [...project.edges] }],
+      future: [],
+    });
+  };
 
-export const useFlowStore = create<FlowStore>((set, get) => ({
+  return {
   projects: initialData.projects,
   activeProjectId: initialData.activeProjectId,
   selectedNodeId: null,
@@ -87,8 +98,8 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   chatMessages: [],
   editingNodeId: null,
   ready: false,
-  syncing: false,
-  syncError: false,
+  past: [],
+  future: [],
 
   getActiveProject: () => {
     const { projects, activeProjectId } = get();
@@ -110,29 +121,23 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       selectedNodeId: firstId,
       ready: true,
     });
-
-    if (supabase) {
-      const initialSaveData: ProjectData = { projects: data.projects, activeProjectId: data.activeProjectId };
-      saveToSupabase(initialSaveData);
-
-      supabase
-        .channel('flow_projects_changes')
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'flow_projects' },
-          (payload) => {
-            if (_ignoreNextRealtimeUpdate) {
-              _ignoreNextRealtimeUpdate = false;
-              return;
-            }
-            handleRealtimeChange(payload);
-          }
-        )
-        .subscribe();
-    }
   },
 
   onNodesChange: (changes) => {
+    const hasRemove = changes.some((c) => c.type === 'remove');
+    const hasDragStart = changes.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === true);
+    const hasDragEnd = changes.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === false);
+
+    if (hasRemove) {
+      pushHistory();
+    } else if (hasDragStart && !_isDragging) {
+      pushHistory();
+      _isDragging = true;
+    }
+    if (hasDragEnd) {
+      _isDragging = false;
+    }
+
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
@@ -143,6 +148,9 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
+    if (changes.some((c) => c.type === 'remove')) {
+      pushHistory();
+    }
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
@@ -153,6 +161,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   onConnect: (connection) => {
+    pushHistory();
     const { activeProjectId } = get();
     const newEdge: FlowEdge = {
       ...connection,
@@ -177,6 +186,8 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       highlightedPath: [],
       highlightedEdges: [],
       editingNodeId: null,
+      past: [],
+      future: [],
       projects: get().projects.map((p) =>
         p.id === id
           ? { ...p, nodes: p.nodes.map((n) => ({ ...n, selected: n.id === firstId })) }
@@ -220,7 +231,6 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     if (get().activeProjectId === id) {
       get().switchProject(remaining[0].id);
     }
-    deleteProjectFromSupabase(id);
   },
 
   setSelectedNode: (nodeId) => {
@@ -239,6 +249,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   updateNodeData: (nodeId, data) => {
+    pushHistory();
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
@@ -251,6 +262,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   addNode: (position) => {
+    pushHistory();
     const { activeProjectId } = get();
     const newNode: FlowNode = {
       id: `node-${uuidv4().slice(0, 8)}`,
@@ -267,6 +279,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   duplicateNode: (nodeId) => {
+    pushHistory();
     const { activeProjectId } = get();
     const project = get().getActiveProject();
     const source = project.nodes.find((n) => n.id === nodeId);
@@ -287,6 +300,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   deleteNode: (nodeId) => {
+    pushHistory();
     const { activeProjectId } = get();
     set({
       selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
@@ -300,6 +314,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   deleteEdge: (edgeId) => {
+    pushHistory();
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
@@ -310,11 +325,52 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   updateEdgeLabel: (edgeId, label) => {
+    pushHistory();
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
         edges: p.edges.map((e) => (e.id === edgeId ? { ...e, label } : e)),
+      })),
+    });
+  },
+
+  undo: () => {
+    const { past, future, activeProjectId, selectedNodeId, editingNodeId } = get();
+    if (past.length === 0) return;
+    const project = get().getActiveProject();
+    const current: HistoryEntry = { nodes: [...project.nodes], edges: [...project.edges] };
+    const previous = past[past.length - 1];
+    const nodeStillExists = (id: string | null) => id && previous.nodes.some((n) => n.id === id);
+    set({
+      past: past.slice(0, -1),
+      future: [...future, current],
+      selectedNodeId: nodeStillExists(selectedNodeId) ? selectedNodeId : null,
+      editingNodeId: nodeStillExists(editingNodeId) ? editingNodeId : null,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: previous.nodes,
+        edges: previous.edges,
+      })),
+    });
+  },
+
+  redo: () => {
+    const { past, future, activeProjectId, selectedNodeId, editingNodeId } = get();
+    if (future.length === 0) return;
+    const project = get().getActiveProject();
+    const current: HistoryEntry = { nodes: [...project.nodes], edges: [...project.edges] };
+    const next = future[future.length - 1];
+    const nodeStillExists = (id: string | null) => id && next.nodes.some((n) => n.id === id);
+    set({
+      past: [...past, current],
+      future: future.slice(0, -1),
+      selectedNodeId: nodeStillExists(selectedNodeId) ? selectedNodeId : null,
+      editingNodeId: nodeStillExists(editingNodeId) ? editingNodeId : null,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: next.nodes,
+        edges: next.edges,
       })),
     });
   },
@@ -413,12 +469,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     const { projects, activeProjectId } = get();
     const data: ProjectData = { projects, activeProjectId };
     saveToLocalStorage(data);
-    _ignoreNextRealtimeUpdate = true;
-    const cloudOk = await saveToSupabase(data);
-    if (!cloudOk) {
-      _ignoreNextRealtimeUpdate = false;
-    }
-    return cloudOk;
+    return saveToFile(data);
   },
 
   loadData: (data) => {
@@ -429,71 +480,21 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       selectedNodeId: null,
       highlightedPath: [],
       highlightedEdges: [],
+      past: [],
+      future: [],
     });
   },
-}));
-
-// ─── 实时变更处理 ───
-
-function handleRealtimeChange(payload: {
-  eventType: string;
-  new?: Record<string, unknown>;
-  old?: Record<string, unknown>;
-}) {
-  const state = useFlowStore.getState();
-  const { eventType } = payload;
-
-  if (eventType === 'INSERT' || eventType === 'UPDATE') {
-    const row = payload.new;
-    if (!row) return;
-    const updated: FlowProject = {
-      id: row.id as string,
-      name: row.name as string,
-      nodes: (row.nodes as FlowProject['nodes']) || [],
-      edges: (row.edges as FlowProject['edges']) || [],
-      scenarioRules: (row.scenario_rules as FlowProject['scenarioRules']) || [],
-    };
-
-    const exists = state.projects.some((p) => p.id === updated.id);
-    const projects = exists
-      ? state.projects.map((p) => (p.id === updated.id ? updated : p))
-      : [...state.projects, updated];
-
-    useFlowStore.setState({ projects });
-  }
-
-  if (eventType === 'DELETE') {
-    const row = payload.old;
-    if (!row) return;
-    const deletedId = row.id as string;
-    const remaining = state.projects.filter((p) => p.id !== deletedId);
-    if (remaining.length === 0) return;
-    const updates: Partial<ReturnType<typeof useFlowStore.getState>> = { projects: remaining };
-    if (state.activeProjectId === deletedId) {
-      updates.activeProjectId = remaining[0].id;
-    }
-    useFlowStore.setState(updates);
-  }
-}
-
-// ─── 自动保存（debounce 同步到 localStorage + Supabase）───
+};});
 
 let debounceTimer: ReturnType<typeof setTimeout>;
 useFlowStore.subscribe((state, prevState) => {
   if (state.projects !== prevState.projects) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      const data: ProjectData = {
+      saveToLocalStorage({
         projects: state.projects,
         activeProjectId: state.activeProjectId,
-      };
-      saveToLocalStorage(data);
-      _ignoreNextRealtimeUpdate = true;
-      useFlowStore.setState({ syncing: true, syncError: false });
-      saveToSupabase(data).then((ok) => {
-        if (!ok) _ignoreNextRealtimeUpdate = false;
-        useFlowStore.setState({ syncing: false, syncError: !ok });
       });
-    }, 800);
+    }, 500);
   }
 });

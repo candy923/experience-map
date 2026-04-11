@@ -28,6 +28,8 @@ export function FlowEditor() {
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const addNode = useFlowStore((s) => s.addNode);
   const duplicateNode = useFlowStore((s) => s.duplicateNode);
+  const undo = useFlowStore((s) => s.undo);
+  const redo = useFlowStore((s) => s.redo);
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
   const { screenToFlowPosition } = useReactFlow();
@@ -48,6 +50,16 @@ export function FlowEditor() {
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
       if (editingNodeId || editingEdgeId) return;
 
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedNodeId) {
         copiedNodeIdRef.current = selectedNodeId;
       }
@@ -61,7 +73,7 @@ export function FlowEditor() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, editingNodeId, editingEdgeId, duplicateNode]);
+  }, [selectedNodeId, editingNodeId, editingEdgeId, duplicateNode, undo, redo]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (_event, node) => {

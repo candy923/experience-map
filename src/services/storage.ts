@@ -1,6 +1,5 @@
 import type { ProjectData, LegacyProjectData, FlowProject } from '../types';
 import { defaultProject } from '../data/defaultFlow';
-import { supabase } from './supabase';
 
 const STORAGE_KEY = 'experience-map-data';
 
@@ -38,7 +37,7 @@ function isLegacyFormat(data: unknown): data is LegacyProjectData {
   return true;
 }
 
-export function normalize(data: unknown): ProjectData | null {
+function normalize(data: unknown): ProjectData | null {
   if (isNewFormat(data)) {
     const valid = data.projects.filter(isValidProject);
     if (valid.length === 0) return null;
@@ -60,90 +59,7 @@ export function normalize(data: unknown): ProjectData | null {
   return null;
 }
 
-// ─── Supabase 读写 ───
-
-function rowToProject(row: Record<string, unknown>): FlowProject {
-  return {
-    id: row.id as string,
-    name: row.name as string,
-    nodes: (row.nodes as FlowProject['nodes']) || [],
-    edges: (row.edges as FlowProject['edges']) || [],
-    scenarioRules: (row.scenario_rules as FlowProject['scenarioRules']) || [],
-  };
-}
-
-function projectToRow(p: FlowProject) {
-  return {
-    id: p.id,
-    name: p.name,
-    nodes: p.nodes,
-    edges: p.edges,
-    scenario_rules: p.scenarioRules,
-    updated_at: new Date().toISOString(),
-  };
-}
-
-const TIMEOUT_MS = 8000;
-
-function raceTimeout<T>(fn: () => Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([
-    fn(),
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ]);
-}
-
-export async function loadFromSupabase(): Promise<ProjectData | null> {
-  if (!supabase) return null;
-  const db = supabase;
-  try {
-    const result = await raceTimeout(
-      () => Promise.resolve(db.from('flow_projects').select('*').order('updated_at', { ascending: true })),
-      TIMEOUT_MS,
-    );
-    if (!result || result.error || !result.data || result.data.length === 0) return null;
-    const projects = (result.data as Record<string, unknown>[]).map(rowToProject).filter(isValidProject);
-    if (projects.length === 0) return null;
-    return { projects, activeProjectId: projects[0].id };
-  } catch {
-    return null;
-  }
-}
-
-export async function saveToSupabase(projectData: ProjectData): Promise<boolean> {
-  if (!supabase) return false;
-  const db = supabase;
-  try {
-    const rows = projectData.projects.map(projectToRow);
-    const result = await raceTimeout(
-      () => Promise.resolve(db.from('flow_projects').upsert(rows, { onConflict: 'id' })),
-      TIMEOUT_MS,
-    );
-    return !!result && !result.error;
-  } catch {
-    return false;
-  }
-}
-
-export async function deleteProjectFromSupabase(projectId: string): Promise<boolean> {
-  if (!supabase) return false;
-  const db = supabase;
-  try {
-    const result = await raceTimeout(
-      () => Promise.resolve(db.from('flow_projects').delete().eq('id', projectId)),
-      TIMEOUT_MS,
-    );
-    return !!result && !result.error;
-  } catch {
-    return false;
-  }
-}
-
-// ─── 综合加载（优先 Supabase → localStorage → 静态文件 → 默认值）───
-
 export async function loadProjectDataAsync(): Promise<ProjectData> {
-  const fromCloud = await loadFromSupabase();
-  if (fromCloud) return fromCloud;
-
   try {
     const resp = await fetch('/data.json?' + Date.now());
     if (resp.ok) {
