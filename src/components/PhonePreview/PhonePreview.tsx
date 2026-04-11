@@ -118,7 +118,7 @@ export function PhonePreview() {
   } : null;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full p-6 bg-[#0a0f1a] overflow-y-auto">
+    <div className="flex flex-col items-center h-full bg-[#0a0f1a] overflow-y-auto" style={{ paddingTop: 80, paddingLeft: 24, paddingRight: 24, paddingBottom: 0 }}>
       {/* Path navigation removed — use left flowchart to navigate */}
 
       {/* Phone mockup */}

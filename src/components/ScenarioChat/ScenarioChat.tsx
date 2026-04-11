@@ -177,7 +177,8 @@ export function ScenarioChat() {
   return (
     <div className="flex flex-col h-full bg-[#0d1321]">
       <div className="flex-1 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 16, padding: '40px 32px' }}>
-        <h3 className="text-xl font-semibold text-slate-200 mb-4">🗺️ 用户场景</h3>
+        <h3 className="text-xl font-semibold text-slate-200">🗺️ 用户场景</h3>
+        <p className="text-sm text-slate-400 mb-2">选择一个用户场景，展示对应的流程。</p>
 
         {scenarioRules.map((rule) => {
           const isActive = activeRuleId === rule.id;
