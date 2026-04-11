@@ -9,7 +9,14 @@ import {
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData } from '../types';
-import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
+import {
+  loadProjectData,
+  loadProjectDataAsync,
+  saveToLocalStorage,
+  saveToSupabase,
+  deleteProjectFromSupabase,
+} from '../services/storage';
+import { supabase } from '../services/supabase';
 import { matchScenario } from '../services/scenarioMatcher';
 
 interface FlowStore {
@@ -21,6 +28,8 @@ interface FlowStore {
   chatMessages: ChatMessage[];
   editingNodeId: string | null;
   ready: boolean;
+  syncing: boolean;
+  syncError: boolean;
 
   getActiveProject: () => FlowProject;
 
@@ -29,7 +38,6 @@ interface FlowStore {
   onEdgesChange: OnEdgesChange<FlowEdge>;
   onConnect: OnConnect;
 
-  // Project management
   switchProject: (id: string) => void;
   addProject: (name: string) => void;
   renameProject: (id: string, name: string) => void;
@@ -68,6 +76,8 @@ function updateActiveProject(
   return projects.map((p) => (p.id === activeId ? updater(p) : p));
 }
 
+let _ignoreNextRealtimeUpdate = false;
+
 export const useFlowStore = create<FlowStore>((set, get) => ({
   projects: initialData.projects,
   activeProjectId: initialData.activeProjectId,
@@ -77,6 +87,8 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   chatMessages: [],
   editingNodeId: null,
   ready: false,
+  syncing: false,
+  syncError: false,
 
   getActiveProject: () => {
     const { projects, activeProjectId } = get();
@@ -98,6 +110,26 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       selectedNodeId: firstId,
       ready: true,
     });
+
+    if (supabase) {
+      const initialSaveData: ProjectData = { projects: data.projects, activeProjectId: data.activeProjectId };
+      saveToSupabase(initialSaveData);
+
+      supabase
+        .channel('flow_projects_changes')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'flow_projects' },
+          (payload) => {
+            if (_ignoreNextRealtimeUpdate) {
+              _ignoreNextRealtimeUpdate = false;
+              return;
+            }
+            handleRealtimeChange(payload);
+          }
+        )
+        .subscribe();
+    }
   },
 
   onNodesChange: (changes) => {
@@ -188,6 +220,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     if (get().activeProjectId === id) {
       get().switchProject(remaining[0].id);
     }
+    deleteProjectFromSupabase(id);
   },
 
   setSelectedNode: (nodeId) => {
@@ -380,7 +413,12 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     const { projects, activeProjectId } = get();
     const data: ProjectData = { projects, activeProjectId };
     saveToLocalStorage(data);
-    return saveToFile(data);
+    _ignoreNextRealtimeUpdate = true;
+    const cloudOk = await saveToSupabase(data);
+    if (!cloudOk) {
+      _ignoreNextRealtimeUpdate = false;
+    }
+    return cloudOk;
   },
 
   loadData: (data) => {
@@ -395,15 +433,67 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 }));
 
+// ─── 实时变更处理 ───
+
+function handleRealtimeChange(payload: {
+  eventType: string;
+  new?: Record<string, unknown>;
+  old?: Record<string, unknown>;
+}) {
+  const state = useFlowStore.getState();
+  const { eventType } = payload;
+
+  if (eventType === 'INSERT' || eventType === 'UPDATE') {
+    const row = payload.new;
+    if (!row) return;
+    const updated: FlowProject = {
+      id: row.id as string,
+      name: row.name as string,
+      nodes: (row.nodes as FlowProject['nodes']) || [],
+      edges: (row.edges as FlowProject['edges']) || [],
+      scenarioRules: (row.scenario_rules as FlowProject['scenarioRules']) || [],
+    };
+
+    const exists = state.projects.some((p) => p.id === updated.id);
+    const projects = exists
+      ? state.projects.map((p) => (p.id === updated.id ? updated : p))
+      : [...state.projects, updated];
+
+    useFlowStore.setState({ projects });
+  }
+
+  if (eventType === 'DELETE') {
+    const row = payload.old;
+    if (!row) return;
+    const deletedId = row.id as string;
+    const remaining = state.projects.filter((p) => p.id !== deletedId);
+    if (remaining.length === 0) return;
+    const updates: Partial<ReturnType<typeof useFlowStore.getState>> = { projects: remaining };
+    if (state.activeProjectId === deletedId) {
+      updates.activeProjectId = remaining[0].id;
+    }
+    useFlowStore.setState(updates);
+  }
+}
+
+// ─── 自动保存（debounce 同步到 localStorage + Supabase）───
+
 let debounceTimer: ReturnType<typeof setTimeout>;
 useFlowStore.subscribe((state, prevState) => {
   if (state.projects !== prevState.projects) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
-      saveToLocalStorage({
+      const data: ProjectData = {
         projects: state.projects,
         activeProjectId: state.activeProjectId,
+      };
+      saveToLocalStorage(data);
+      _ignoreNextRealtimeUpdate = true;
+      useFlowStore.setState({ syncing: true, syncError: false });
+      saveToSupabase(data).then((ok) => {
+        if (!ok) _ignoreNextRealtimeUpdate = false;
+        useFlowStore.setState({ syncing: false, syncError: !ok });
       });
-    }, 500);
+    }, 800);
   }
 });

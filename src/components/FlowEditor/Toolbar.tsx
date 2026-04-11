@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { exportProjectJSON, importProjectJSON } from '../../services/storage';
+import { supabase } from '../../services/supabase';
 
 export function Toolbar() {
   const projects = useFlowStore((s) => s.projects);
@@ -11,6 +12,8 @@ export function Toolbar() {
   const deleteProject = useFlowStore((s) => s.deleteProject);
   const save = useFlowStore((s) => s.save);
   const loadData = useFlowStore((s) => s.loadData);
+  const syncing = useFlowStore((s) => s.syncing);
+  const syncError = useFlowStore((s) => s.syncError);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -109,6 +112,16 @@ export function Toolbar() {
           导入
         </button>
         <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+        {supabase && (
+          <div className="ml-auto flex items-center gap-2 text-xs">
+            <span className={`inline-block w-2 h-2 rounded-full ${
+              syncing ? 'bg-amber-400 animate-pulse' : syncError ? 'bg-red-400' : 'bg-emerald-400'
+            }`} />
+            <span className="text-slate-500">
+              {syncing ? '同步中...' : syncError ? '同步失败（本地已保存）' : '已同步'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Row 2: Project tabs */}
