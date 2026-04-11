@@ -109,8 +109,8 @@ export function NodeEditPanel() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onPaste={handlePaste}>
-      <div className="bg-[#1a2332] border border-slate-700 rounded-2xl w-[620px] shadow-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-10 py-6 border-b border-slate-700 shrink-0">
+      <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl flex flex-col" style={{ width: 700, maxHeight: '92vh' }}>
+        <div className="flex items-center justify-between border-b border-slate-700 shrink-0" style={{ padding: '20px 48px' }}>
           <h3 className="text-lg font-semibold text-slate-100">编辑节点</h3>
           <button
             onClick={() => setEditingNode(null)}
@@ -122,31 +122,33 @@ export function NodeEditPanel() {
           </button>
         </div>
 
-        <div className="px-10 py-8 space-y-10 overflow-y-auto">
+        <div className="overflow-y-auto flex-1" style={{ padding: '28px 48px', display: 'flex', flexDirection: 'column', gap: 24 }}>
           <div>
-            <label className="block text-base font-medium text-slate-400 mb-3">节点标题</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>节点标题</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-5 py-4 bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+              style={{ padding: '14px 20px' }}
               placeholder="输入节点标题"
             />
           </div>
 
           <div>
-            <label className="block text-base font-medium text-slate-400 mb-3">节点描述</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>节点描述</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="w-full px-5 py-4 bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+              rows={2}
+              className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500 transition-colors resize-none"
+              style={{ padding: '14px 20px' }}
               placeholder="输入节点描述"
             />
           </div>
 
           <div>
-            <label className="block text-base font-medium text-slate-400 mb-3">节点类型</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>节点类型</label>
             <div className="flex gap-4">
               {nodeStyles.map((s) => (
                 <button
@@ -167,13 +169,14 @@ export function NodeEditPanel() {
           </div>
 
           <div>
-            <label className="block text-base font-medium text-slate-400 mb-3">UI 截图</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>UI 截图</label>
             {node.data.screenshot ? (
               <div className="relative group">
                 <img
                   src={node.data.screenshot}
                   alt="UI Screenshot"
-                  className="w-full h-44 object-cover rounded-xl border border-slate-600"
+                  className="w-full rounded-xl border border-slate-600 object-cover"
+                  style={{ height: 180 }}
                 />
                 <button
                   onClick={handleRemoveScreenshot}
@@ -187,7 +190,8 @@ export function NodeEditPanel() {
             ) : (
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-12 border-2 border-dashed border-slate-600 rounded-xl text-base text-slate-400 hover:border-blue-500 hover:text-blue-400 transition-colors"
+                className="w-full border-2 border-dashed border-slate-600 rounded-xl text-base text-slate-400 hover:border-blue-500 hover:text-blue-400 transition-colors"
+                style={{ padding: '48px 0' }}
               >
                 点击上传或 Ctrl+V 粘贴截图
               </button>
@@ -203,7 +207,7 @@ export function NodeEditPanel() {
 
           {/* Metrics */}
           <div>
-            <label className="block text-base font-medium text-slate-400 mb-3">数据指标</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>数据指标</label>
             <div className="space-y-4">
               {metrics.map((m) => (
                 <div key={m.id} className="flex items-center gap-4">
@@ -212,14 +216,16 @@ export function NodeEditPanel() {
                     value={m.label}
                     onChange={(e) => updateMetric(m.id, 'label', e.target.value)}
                     placeholder="指标名，如 PV"
-                    className="w-[200px] px-5 py-4 bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500"
+                    className="w-[200px] bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500"
+                    style={{ padding: '14px 20px' }}
                   />
                   <input
                     type="text"
                     value={m.value}
                     onChange={(e) => updateMetric(m.id, 'value', e.target.value)}
                     placeholder="值，如 12.3万"
-                    className="flex-1 px-5 py-4 bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500"
+                    style={{ padding: '14px 20px' }}
                   />
                   <button
                     onClick={() => removeMetric(m.id)}
@@ -244,23 +250,26 @@ export function NodeEditPanel() {
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-10 py-6 border-t border-slate-700 shrink-0">
+        <div className="flex items-center justify-between border-t border-slate-700 shrink-0" style={{ padding: '20px 48px' }}>
           <button
             onClick={handleDelete}
-            className="px-6 py-3 text-base text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-xl transition-colors"
+            className="text-base text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-xl transition-colors"
+            style={{ padding: '14px 28px' }}
           >
             删除节点
           </button>
-          <div className="flex gap-4">
+          <div className="flex" style={{ gap: 16 }}>
             <button
               onClick={() => setEditingNode(null)}
-              className="px-8 py-3 text-base text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+              className="text-base text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+              style={{ padding: '14px 36px' }}
             >
               取消
             </button>
             <button
               onClick={handleSave}
-              className="px-8 py-3 text-base text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-colors"
+              className="text-base text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-colors"
+              style={{ padding: '14px 36px' }}
             >
               保存
             </button>

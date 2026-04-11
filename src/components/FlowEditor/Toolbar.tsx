@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { exportProjectJSON, importProjectJSON } from '../../services/storage';
 
@@ -9,7 +9,6 @@ export function Toolbar() {
   const addProject = useFlowStore((s) => s.addProject);
   const renameProject = useFlowStore((s) => s.renameProject);
   const deleteProject = useFlowStore((s) => s.deleteProject);
-  const save = useFlowStore((s) => s.save);
   const loadData = useFlowStore((s) => s.loadData);
   const undo = useFlowStore((s) => s.undo);
   const redo = useFlowStore((s) => s.redo);
@@ -17,18 +16,17 @@ export function Toolbar() {
   const canRedo = useFlowStore((s) => s.future.length > 0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editProjectName, setEditProjectName] = useState('');
   const [addingNew, setAddingNew] = useState(false);
   const [newName, setNewName] = useState('');
 
-  const handleSave = useCallback(async () => {
-    setSaveStatus('saving');
-    const ok = await save();
-    setSaveStatus(ok ? 'saved' : 'idle');
-    if (ok) setTimeout(() => setSaveStatus('idle'), 2000);
-  }, [save]);
+  useEffect(() => {
+    setSaveStatus('saved');
+    const timer = setTimeout(() => setSaveStatus('idle'), 1500);
+    return () => clearTimeout(timer);
+  }, [projects]);
 
   const handleExport = useCallback(() => {
     exportProjectJSON({ projects, activeProjectId });
@@ -110,20 +108,6 @@ export function Toolbar() {
         </button>
         <div className="w-px h-6 bg-slate-700/50" />
         <button
-          onClick={handleSave}
-          className={`flex items-center gap-2 px-4 py-2.5 text-sm rounded-lg transition-colors ${
-            saveStatus === 'saved'
-              ? 'text-emerald-300 bg-emerald-900/40'
-              : 'text-slate-300 bg-slate-800 hover:bg-slate-700'
-          }`}
-          title="保存到文件"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-          </svg>
-          {saveStatus === 'saving' ? '保存中...' : saveStatus === 'saved' ? '已保存 ✓' : '保存'}
-        </button>
-        <button
           onClick={handleExport}
           className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
           title="导出JSON文件"
@@ -144,6 +128,14 @@ export function Toolbar() {
           导入
         </button>
         <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+        {saveStatus === 'saved' && (
+          <span className="flex items-center gap-1.5 px-3 py-2.5 text-sm text-emerald-400 transition-opacity">
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            已自动保存
+          </span>
+        )}
       </div>
 
       {/* Row 2: Project tabs */}

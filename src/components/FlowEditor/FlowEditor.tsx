@@ -26,6 +26,7 @@ export function FlowEditor() {
   const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
   const onConnect = useFlowStore((s) => s.onConnect);
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
+  const toggleNodeSelection = useFlowStore((s) => s.toggleNodeSelection);
   const addNode = useFlowStore((s) => s.addNode);
   const duplicateNode = useFlowStore((s) => s.duplicateNode);
   const undo = useFlowStore((s) => s.undo);
@@ -76,10 +77,14 @@ export function FlowEditor() {
   }, [selectedNodeId, editingNodeId, editingEdgeId, duplicateNode, undo, redo]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
-      setSelectedNode(node.id);
+    (event, node) => {
+      if (event.shiftKey) {
+        toggleNodeSelection(node.id);
+      } else {
+        setSelectedNode(node.id);
+      }
     },
-    [setSelectedNode]
+    [setSelectedNode, toggleNodeSelection]
   );
 
   const handlePaneClick = useCallback(

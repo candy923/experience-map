@@ -28,17 +28,11 @@ const styleConfig = {
 
 function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
-  const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const setEditingNode = useFlowStore((s) => s.setEditingNode);
 
   const isHighlighted = highlightedPath.includes(id);
   const isDimmed = highlightedPath.length > 0 && !isHighlighted;
   const style = styleConfig[data.nodeStyle] || styleConfig.default;
-
-  const handleClick = useCallback(() => {
-    if (isDimmed) return;
-    setSelectedNode(id);
-  }, [id, isDimmed, setSelectedNode]);
 
   const handleDoubleClick = useCallback(() => {
     setEditingNode(id);
@@ -46,7 +40,6 @@ function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
 
   return (
     <div
-      onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       style={{ paddingLeft: 16, paddingRight: 40, paddingTop: 12, paddingBottom: 12, opacity: isDimmed ? 0.25 : 1 }}
       className={`
@@ -54,7 +47,7 @@ function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
         transition-all duration-200
         ${isDimmed ? 'cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
         ${style.border} ${style.bg}
-        ${selected ? 'ring-2 ring-blue-400 shadow-lg shadow-blue-500/20' : ''}
+        ${selected ? 'ring-[3px] ring-blue-400/90 shadow-[0_0_20px_rgba(59,130,246,0.5),0_0_40px_rgba(59,130,246,0.2)] border-blue-400' : ''}
         ${isHighlighted ? 'ring-2 ring-teal-400 shadow-lg shadow-teal-500/30 scale-105' : ''}
       `}
     >

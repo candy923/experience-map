@@ -61,17 +61,17 @@ function normalize(data: unknown): ProjectData | null {
 
 export async function loadProjectDataAsync(): Promise<ProjectData> {
   try {
-    const resp = await fetch('/data.json?' + Date.now());
-    if (resp.ok) {
-      const result = normalize(await resp.json());
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const result = normalize(JSON.parse(raw));
       if (result) return result;
     }
   } catch { /* fall through */ }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const result = normalize(JSON.parse(raw));
+    const resp = await fetch('/data.json?' + Date.now());
+    if (resp.ok) {
+      const result = normalize(await resp.json());
       if (result) return result;
     }
   } catch { /* fall through */ }

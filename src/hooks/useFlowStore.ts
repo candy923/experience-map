@@ -9,7 +9,7 @@ import {
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData } from '../types';
-import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
+import { loadProjectData, loadProjectDataAsync, saveToLocalStorage } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
 
 interface HistoryEntry {
@@ -45,6 +45,7 @@ interface FlowStore {
   deleteProject: (id: string) => void;
 
   setSelectedNode: (nodeId: string | null) => void;
+  toggleNodeSelection: (nodeId: string) => void;
   setEditingNode: (nodeId: string | null) => void;
   updateNodeData: (nodeId: string, data: Partial<FlowNode['data']>) => void;
   addNode: (position: { x: number; y: number }) => void;
@@ -66,7 +67,6 @@ interface FlowStore {
   sendChatMessage: (content: string) => void;
   clearChat: () => void;
 
-  save: () => Promise<boolean>;
   loadData: (data: ProjectData) => void;
 }
 
@@ -124,9 +124,12 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   },
 
   onNodesChange: (changes) => {
-    const hasRemove = changes.some((c) => c.type === 'remove');
-    const hasDragStart = changes.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === true);
-    const hasDragEnd = changes.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === false);
+    const filtered = changes.filter((c) => c.type !== 'select');
+    if (filtered.length === 0) return;
+
+    const hasRemove = filtered.some((c) => c.type === 'remove');
+    const hasDragStart = filtered.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === true);
+    const hasDragEnd = filtered.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === false);
 
     if (hasRemove) {
       pushHistory();
@@ -142,7 +145,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
-        nodes: applyNodeChanges(changes, p.nodes),
+        nodes: applyNodeChanges(filtered, p.nodes),
       })),
     });
   },
@@ -240,6 +243,21 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
         nodes: p.nodes.map((n) => ({ ...n, selected: n.id === nodeId })),
+      })),
+    });
+  },
+
+  toggleNodeSelection: (nodeId) => {
+    const { activeProjectId } = get();
+    const project = get().getActiveProject();
+    const node = project.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const newSelected = !node.selected;
+    set({
+      selectedNodeId: newSelected ? nodeId : get().selectedNodeId,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((n) => n.id === nodeId ? { ...n, selected: newSelected } : n),
       })),
     });
   },
@@ -465,13 +483,6 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({ chatMessages: [], highlightedPath: [], highlightedEdges: [] });
   },
 
-  save: async () => {
-    const { projects, activeProjectId } = get();
-    const data: ProjectData = { projects, activeProjectId };
-    saveToLocalStorage(data);
-    return saveToFile(data);
-  },
-
   loadData: (data) => {
     const activeProject = data.projects.find((p) => p.id === data.activeProjectId) || data.projects[0];
     set({
@@ -486,11 +497,11 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   },
 };});
 
-let debounceTimer: ReturnType<typeof setTimeout>;
+let localTimer: ReturnType<typeof setTimeout>;
 useFlowStore.subscribe((state, prevState) => {
   if (state.projects !== prevState.projects) {
-    clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
+    clearTimeout(localTimer);
+    localTimer = setTimeout(() => {
       saveToLocalStorage({
         projects: state.projects,
         activeProjectId: state.activeProjectId,
