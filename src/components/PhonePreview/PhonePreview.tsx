@@ -118,11 +118,12 @@ export function PhonePreview() {
   } : null;
 
   return (
-    <div className="flex flex-col items-center h-full bg-[#0a0f1a] overflow-y-auto" style={{ paddingTop: 80, paddingLeft: 24, paddingRight: 24, paddingBottom: 0 }}>
-      {/* Path navigation removed — use left flowchart to navigate */}
-
-      {/* Phone mockup */}
-      <div className="relative bg-black rounded-[40px] border-[3px] border-slate-700 shadow-2xl shadow-black/50 overflow-hidden" style={{ width: 300, height: 300 * (1624 / 750) + 6 }}>
+    <div className="flex flex-col items-center justify-center h-full bg-[#0a0f1a]" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 40 }}>
+      {/* Phone mockup — responsive height */}
+      <div
+        className="relative bg-black rounded-[40px] border-[3px] border-slate-700 shadow-2xl shadow-black/50 overflow-hidden shrink"
+        style={{ width: 300, maxHeight: 'calc(100vh - 280px)', aspectRatio: '750 / 1624' }}
+      >
         <div className="absolute top-[10px] left-1/2 -translate-x-1/2 w-[100px] h-[28px] bg-black rounded-full z-10" />
 
         {/* Screen */}
