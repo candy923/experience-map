@@ -48,4 +48,9 @@ function dataSyncPlugin(): Plugin {
 
 export default defineConfig({
   plugins: [react(), tailwindcss(), dataSyncPlugin()],
+  server: {
+    watch: {
+      ignored: ['**/data.json'],
+    },
+  },
 })

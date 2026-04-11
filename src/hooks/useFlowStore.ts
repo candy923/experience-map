@@ -9,7 +9,7 @@ import {
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording } from '../types';
-import { loadProjectData, loadProjectDataAsync, saveToLocalStorage } from '../services/storage';
+import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
 
 interface HistoryEntry {
@@ -583,14 +583,13 @@ export const useFlowStore = create<FlowStore>((set, get) => {
 };});
 
 let localTimer: ReturnType<typeof setTimeout>;
+let fileTimer: ReturnType<typeof setTimeout>;
 useFlowStore.subscribe((state, prevState) => {
   if (state.projects !== prevState.projects) {
+    const data = { projects: state.projects, activeProjectId: state.activeProjectId };
     clearTimeout(localTimer);
-    localTimer = setTimeout(() => {
-      saveToLocalStorage({
-        projects: state.projects,
-        activeProjectId: state.activeProjectId,
-      });
-    }, 500);
+    localTimer = setTimeout(() => saveToLocalStorage(data), 500);
+    clearTimeout(fileTimer);
+    fileTimer = setTimeout(() => saveToFile(data), 1500);
   }
 });
