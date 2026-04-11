@@ -180,45 +180,49 @@ export function Toolbar() {
       {/* Edit project modal */}
       {editingProjectId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-[#1a2332] border border-slate-700 rounded-2xl w-[400px] shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-700">
-              <h3 className="text-base font-semibold text-slate-100">编辑页面</h3>
-              <button onClick={() => setEditingProjectId(null)} className="p-1 text-slate-400 hover:text-slate-200">
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl" style={{ width: 480 }}>
+            <div className="flex items-center justify-between border-b border-slate-700" style={{ padding: '20px 48px' }}>
+              <h3 className="text-lg font-semibold text-slate-100">编辑页面</h3>
+              <button onClick={() => setEditingProjectId(null)} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="px-6 py-6">
-              <label className="block text-sm font-medium text-slate-400 mb-2">页面名称</label>
+            <div style={{ padding: '28px 48px' }}>
+              <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>页面名称</label>
               <input
                 type="text"
                 value={editProjectName}
                 onChange={(e) => setEditProjectName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') handleSaveProjectEdit(); }}
                 autoFocus
-                className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-teal-500"
+                className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-teal-500 transition-colors"
+                style={{ padding: '14px 20px' }}
               />
             </div>
-            <div className="flex items-center justify-between px-6 py-5 border-t border-slate-700">
+            <div className="flex items-center justify-between border-t border-slate-700" style={{ padding: '20px 48px' }}>
               {projects.length > 1 ? (
                 <button
                   onClick={handleDeleteProject}
-                  className="px-4 py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors"
+                  className="text-base text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-xl transition-colors"
+                  style={{ padding: '14px 28px' }}
                 >
                   删除页面
                 </button>
               ) : <div />}
-              <div className="flex gap-3">
+              <div className="flex" style={{ gap: 16 }}>
                 <button
                   onClick={() => setEditingProjectId(null)}
-                  className="px-5 py-2 text-sm text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-lg"
+                  className="text-base text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+                  style={{ padding: '14px 36px' }}
                 >
                   取消
                 </button>
                 <button
                   onClick={handleSaveProjectEdit}
-                  className="px-5 py-2 text-sm text-white bg-teal-600 hover:bg-teal-500 rounded-lg"
+                  className="text-base text-white bg-teal-600 hover:bg-teal-500 rounded-xl transition-colors"
+                  style={{ padding: '14px 36px' }}
                 >
                   保存
                 </button>

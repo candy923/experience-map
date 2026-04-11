@@ -8,7 +8,7 @@ import {
   type OnConnect,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
-import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData } from '../types';
+import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording } from '../types';
 import { loadProjectData, loadProjectDataAsync, saveToLocalStorage } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
 
@@ -28,6 +28,7 @@ interface FlowStore {
   highlightedEdges: string[];
   chatMessages: ChatMessage[];
   editingNodeId: string | null;
+  pathRecording: PathRecording | null;
   ready: boolean;
   past: HistoryEntry[];
   future: HistoryEntry[];
@@ -63,6 +64,13 @@ interface FlowStore {
   addScenarioRule: (rule: ScenarioRule) => void;
   updateScenarioRule: (id: string, updates: Partial<ScenarioRule>) => void;
   deleteScenarioRule: (id: string) => void;
+  reorderScenarioRules: (fromIndex: number, toIndex: number) => void;
+
+  startPathRecording: (rule?: ScenarioRule) => void;
+  togglePathNode: (nodeId: string) => void;
+  setPathDescription: (desc: string) => void;
+  savePathRecording: () => void;
+  cancelPathRecording: () => void;
 
   sendChatMessage: (content: string) => void;
   clearChat: () => void;
@@ -97,6 +105,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   highlightedEdges: [],
   chatMessages: [],
   editingNodeId: null,
+  pathRecording: null,
   ready: false,
   past: [],
   future: [],
@@ -440,6 +449,82 @@ export const useFlowStore = create<FlowStore>((set, get) => {
         scenarioRules: p.scenarioRules.filter((r) => r.id !== id),
       })),
     });
+  },
+
+  reorderScenarioRules: (fromIndex, toIndex) => {
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => {
+        const rules = [...p.scenarioRules];
+        const [moved] = rules.splice(fromIndex, 1);
+        rules.splice(toIndex, 0, moved);
+        return { ...p, scenarioRules: rules };
+      }),
+    });
+  },
+
+  startPathRecording: (rule) => {
+    set({
+      pathRecording: {
+        ruleId: rule?.id || null,
+        description: rule?.description.split('，')[0].split('。')[0] || '',
+        path: rule?.path ? [...rule.path] : [],
+      },
+      highlightedPath: [],
+      highlightedEdges: [],
+    });
+  },
+
+  togglePathNode: (nodeId) => {
+    const rec = get().pathRecording;
+    if (!rec) return;
+    const idx = rec.path.indexOf(nodeId);
+    set({
+      pathRecording: {
+        ...rec,
+        path: idx >= 0 ? rec.path.filter((id) => id !== nodeId) : [...rec.path, nodeId],
+      },
+    });
+  },
+
+  setPathDescription: (desc) => {
+    const rec = get().pathRecording;
+    if (!rec) return;
+    set({ pathRecording: { ...rec, description: desc } });
+  },
+
+  savePathRecording: () => {
+    const rec = get().pathRecording;
+    if (!rec || !rec.description.trim() || rec.path.length === 0) return;
+    const rule: ScenarioRule = {
+      id: rec.ruleId || `rule-${uuidv4().slice(0, 8)}`,
+      keywords: rec.description.split(/[，,、\s]+/).filter(Boolean),
+      path: rec.path,
+      description: rec.description.trim(),
+    };
+    const { activeProjectId } = get();
+    const existing = get().getActiveProject().scenarioRules.find((r) => r.id === rule.id);
+    if (existing) {
+      set({
+        pathRecording: null,
+        projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+          ...p,
+          scenarioRules: p.scenarioRules.map((r) => (r.id === rule.id ? rule : r)),
+        })),
+      });
+    } else {
+      set({
+        pathRecording: null,
+        projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+          ...p,
+          scenarioRules: [...p.scenarioRules, rule],
+        })),
+      });
+    }
+  },
+
+  cancelPathRecording: () => {
+    set({ pathRecording: null });
   },
 
   sendChatMessage: (content) => {

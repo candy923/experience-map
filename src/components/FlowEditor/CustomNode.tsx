@@ -29,14 +29,20 @@ const styleConfig = {
 function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const setEditingNode = useFlowStore((s) => s.setEditingNode);
+  const pathRecording = useFlowStore((s) => s.pathRecording);
 
   const isHighlighted = highlightedPath.includes(id);
   const isDimmed = highlightedPath.length > 0 && !isHighlighted;
   const style = styleConfig[data.nodeStyle] || styleConfig.default;
 
+  const recordingIndex = pathRecording ? pathRecording.path.indexOf(id) : -1;
+  const isInRecording = recordingIndex >= 0;
+  const isRecording = !!pathRecording;
+
   const handleDoubleClick = useCallback(() => {
+    if (isRecording) return;
     setEditingNode(id);
-  }, [id, setEditingNode]);
+  }, [id, setEditingNode, isRecording]);
 
   return (
     <div
@@ -47,10 +53,18 @@ function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
         transition-all duration-200
         ${isDimmed ? 'cursor-not-allowed' : 'cursor-pointer hover:shadow-md'}
         ${style.border} ${style.bg}
-        ${selected ? 'ring-[3px] ring-blue-400/90 shadow-[0_0_20px_rgba(59,130,246,0.5),0_0_40px_rgba(59,130,246,0.2)] border-blue-400' : ''}
+        ${!isRecording && selected ? 'ring-[3px] ring-blue-400 shadow-[0_0_24px_rgba(59,130,246,0.6),0_0_48px_rgba(59,130,246,0.25),0_0_80px_rgba(59,130,246,0.1)] border-blue-400 scale-[1.03]' : ''}
         ${isHighlighted ? 'ring-2 ring-teal-400 shadow-lg shadow-teal-500/30 scale-105' : ''}
+        ${isInRecording ? 'ring-2 ring-teal-400 border-teal-500 shadow-lg shadow-teal-500/30' : ''}
       `}
     >
+      {isInRecording && (
+        <div
+          className="absolute -top-3 -left-3 w-6 h-6 rounded-full bg-teal-500 text-white text-xs font-bold flex items-center justify-center z-10 shadow-md"
+        >
+          {recordingIndex + 1}
+        </div>
+      )}
       <Handle type="target" position={Position.Top} className="!bg-slate-500" />
       {data.screenshot && (
         <div className="absolute top-2 right-2 w-3.5 h-3.5 rounded-sm bg-slate-700/60 flex items-center justify-center">

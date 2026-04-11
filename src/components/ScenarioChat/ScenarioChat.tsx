@@ -1,149 +1,18 @@
-import { useCallback, useState } from 'react';
-import { v4 as uuidv4 } from 'uuid';
+import { useCallback, useRef, useState } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { useActiveProject } from '../../hooks/useActiveProject';
-import type { ScenarioRule } from '../../types';
-
-function ScenarioEditModal({
-  rule,
-  onSave,
-  onClose,
-}: {
-  rule: ScenarioRule | null;
-  onSave: (rule: ScenarioRule) => void;
-  onClose: () => void;
-}) {
-  const { nodes } = useActiveProject();
-  const [description, setDescription] = useState(
-    rule ? rule.description.split('，')[0].split('。')[0] : ''
-  );
-  const [path, setPath] = useState<string[]>(rule?.path || []);
-
-  const handleToggleNode = (nodeId: string) => {
-    setPath((prev) =>
-      prev.includes(nodeId)
-        ? prev.filter((id) => id !== nodeId)
-        : [...prev, nodeId]
-    );
-  };
-
-  const handleSave = () => {
-    if (!description.trim() || path.length === 0) return;
-    onSave({
-      id: rule?.id || `rule-${uuidv4().slice(0, 8)}`,
-      keywords: description.split(/[，,、\s]+/).filter(Boolean),
-      path,
-      description: description.trim(),
-    });
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-[#1a2332] border border-slate-700 rounded-2xl w-[500px] shadow-2xl max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-700 shrink-0">
-          <h3 className="text-base font-semibold text-slate-100">{rule ? '编辑场景' : '新增场景'}</h3>
-          <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-200">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="px-6 py-6 space-y-6 overflow-y-auto">
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-2">场景描述</label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              autoFocus
-              className="w-full px-4 py-3 bg-slate-800 border border-slate-600 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-teal-500"
-              placeholder="如：新用户首次进入天天领"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-400 mb-2">
-              选择路径节点
-              <span className="text-xs text-slate-500 ml-2">（按顺序点选）</span>
-            </label>
-            {path.length > 0 && (
-              <div className="flex items-center gap-1 flex-wrap mb-3 p-3 bg-slate-800/50 rounded-lg">
-                {path.map((nodeId, idx) => {
-                  const n = nodes.find((n) => n.id === nodeId);
-                  return (
-                    <div key={nodeId} className="flex items-center">
-                      <span className="text-xs bg-teal-900/50 text-teal-300 px-2 py-1 rounded">
-                        {n?.data.title || nodeId}
-                      </span>
-                      {idx < path.length - 1 && (
-                        <svg className="w-3 h-3 text-slate-600 mx-1 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-2 max-h-[200px] overflow-y-auto">
-              {nodes.map((n) => {
-                const idx = path.indexOf(n.id);
-                const inPath = idx >= 0;
-                return (
-                  <button
-                    key={n.id}
-                    onClick={() => handleToggleNode(n.id)}
-                    className={`text-left px-3 py-2 rounded-lg text-xs transition-all flex items-center gap-2 ${
-                      inPath
-                        ? 'bg-teal-900/40 border border-teal-600 text-teal-200'
-                        : 'bg-slate-800 border border-slate-700 text-slate-400 hover:border-slate-500'
-                    }`}
-                  >
-                    {inPath && (
-                      <span className="w-4 h-4 rounded-full bg-teal-600 text-white text-[10px] flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-                    )}
-                    <div className="min-w-0">
-                      <div className="truncate">{n.data.title}</div>
-                      <div className="text-[10px] text-slate-500 truncate">{n.data.description}</div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-3 px-6 py-5 border-t border-slate-700 shrink-0">
-          <button
-            onClick={onClose}
-            className="px-6 py-2.5 text-sm text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl"
-          >
-            取消
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!description.trim() || path.length === 0}
-            className="px-6 py-2.5 text-sm text-white bg-teal-600 hover:bg-teal-500 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl"
-          >
-            保存
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export function ScenarioChat() {
   const { scenarioRules } = useActiveProject();
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const setHighlightedPath = useFlowStore((s) => s.setHighlightedPath);
   const clearHighlight = useFlowStore((s) => s.clearHighlight);
-  const addScenarioRule = useFlowStore((s) => s.addScenarioRule);
-  const updateScenarioRule = useFlowStore((s) => s.updateScenarioRule);
-  const [editingRule, setEditingRule] = useState<ScenarioRule | null | 'new'>(null);
+  const startPathRecording = useFlowStore((s) => s.startPathRecording);
+  const reorderScenarioRules = useFlowStore((s) => s.reorderScenarioRules);
+
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const dragStartY = useRef(0);
 
   const activeRuleId = scenarioRules.find(
     (r) => r.path.length === highlightedPath.length && r.path.every((id, i) => id === highlightedPath[i])
@@ -162,18 +31,34 @@ export function ScenarioChat() {
     [scenarioRules, activeRuleId, setHighlightedPath, clearHighlight]
   );
 
-  const handleSaveRule = useCallback(
-    (rule: ScenarioRule) => {
-      const existing = scenarioRules.find((r) => r.id === rule.id);
-      if (existing) {
-        updateScenarioRule(rule.id, rule);
-      } else {
-        addScenarioRule(rule);
-      }
-      setEditingRule(null);
-    },
-    [scenarioRules, updateScenarioRule, addScenarioRule]
-  );
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    dragStartY.current = e.clientY;
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(index));
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragIndex !== null && index !== dragIndex) {
+      setDropIndex(index);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (dragIndex !== null && dragIndex !== index) {
+      reorderScenarioRules(dragIndex, index);
+    }
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
 
   return (
     <div className="flex flex-col h-full bg-[#0d1321]">
@@ -181,38 +66,70 @@ export function ScenarioChat() {
         <h3 className="text-xl font-semibold text-slate-200">🗺️ 用户场景</h3>
         <p className="text-sm text-slate-400 mb-2">选择一个用户场景，展示对应的流程。</p>
 
-        {scenarioRules.map((rule) => {
+        {scenarioRules.map((rule, index) => {
           const isActive = activeRuleId === rule.id;
+          const isDragging = dragIndex === index;
+          const isDropTarget = dropIndex === index;
 
           return (
-            <div key={rule.id} className="relative shrink-0 group">
+            <div
+              key={rule.id}
+              className={`relative shrink-0 group transition-all duration-150 ${isDragging ? 'opacity-40 scale-95' : ''} ${isDropTarget ? 'translate-y-1' : ''}`}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => handleDrop(e, index)}
+              onDragEnd={handleDragEnd}
+            >
+              {isDropTarget && dragIndex !== null && dragIndex > index && (
+                <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-teal-500 rounded-full" />
+              )}
+              <div className="flex items-center">
+                <div
+                  className="absolute -left-6 top-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="拖拽排序"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="9" cy="6" r="1.5" />
+                    <circle cx="15" cy="6" r="1.5" />
+                    <circle cx="9" cy="12" r="1.5" />
+                    <circle cx="15" cy="12" r="1.5" />
+                    <circle cx="9" cy="18" r="1.5" />
+                    <circle cx="15" cy="18" r="1.5" />
+                  </svg>
+                </div>
+                <button
+                  onClick={() => handleSelect(rule.id)}
+                  style={{ height: 50, paddingLeft: 48, paddingRight: 48 }}
+                  className={`
+                    text-center rounded-full border transition-all text-sm flex items-center justify-center whitespace-nowrap
+                    ${isActive
+                      ? 'bg-teal-900/30 border-teal-600 text-teal-200'
+                      : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:bg-slate-800 hover:text-slate-300'}
+                  `}
+                >
+                  {rule.description.split('，')[0].split('。')[0]}
+                </button>
+              </div>
               <button
-                onClick={() => handleSelect(rule.id)}
-                style={{ height: 50, paddingLeft: 48, paddingRight: 48 }}
-                className={`
-                  text-center rounded-full border transition-all text-sm flex items-center justify-center whitespace-nowrap
-                  ${isActive
-                    ? 'bg-teal-900/30 border-teal-600 text-teal-200'
-                    : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:bg-slate-800 hover:text-slate-300'}
-                `}
-              >
-                {rule.description.split('，')[0].split('。')[0]}
-              </button>
-              <button
-                onClick={() => setEditingRule(rule)}
+                onClick={() => startPathRecording(rule)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-slate-600 hover:text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity"
+                title="编辑场景"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                 </svg>
               </button>
+              {isDropTarget && dragIndex !== null && dragIndex < index && (
+                <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 w-3/4 h-0.5 bg-teal-500 rounded-full" />
+              )}
             </div>
           );
         })}
 
         <div className="shrink-0">
           <button
-            onClick={() => setEditingRule('new')}
+            onClick={() => startPathRecording()}
             style={{ height: 50, paddingLeft: 48, paddingRight: 48 }}
             className="text-center rounded-full border border-dashed border-slate-700 text-slate-500 hover:border-teal-600 hover:text-teal-400 transition-all text-sm flex items-center justify-center gap-1.5 whitespace-nowrap"
           >
@@ -230,14 +147,6 @@ export function ScenarioChat() {
           取消选中
         </button>
       </div>
-
-      {editingRule && (
-        <ScenarioEditModal
-          rule={editingRule === 'new' ? null : editingRule}
-          onSave={handleSaveRule}
-          onClose={() => setEditingRule(null)}
-        />
-      )}
     </div>
   );
 }

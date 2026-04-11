@@ -7,6 +7,9 @@ import type { Hotspot } from '../../types';
 export function PhonePreview() {
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
+  const projects = useFlowStore((s) => s.projects);
+  const activeProjectId = useFlowStore((s) => s.activeProjectId);
+  const switchProject = useFlowStore((s) => s.switchProject);
   const { nodes } = useActiveProject();
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
@@ -85,22 +88,27 @@ export function PhonePreview() {
     setSelectingTarget({ x, y, width, height });
   }, [drawing]);
 
-  const handleSelectTarget = useCallback((targetNodeId: string) => {
+  const handleSelectTarget = useCallback((targetNodeId: string, targetProjectId?: string) => {
     if (!selectingTarget || !activeNodeId) return;
     const hotspot: Hotspot = {
       id: uuidv4().slice(0, 8),
       ...selectingTarget,
       targetNodeId,
+      ...(targetProjectId ? { targetProjectId } : {}),
     };
     const existing = activeNode?.data.hotspots || [];
     updateNodeData(activeNodeId, { hotspots: [...existing, hotspot] });
     setSelectingTarget(null);
   }, [selectingTarget, activeNodeId, activeNode, updateNodeData]);
 
-  const handleHotspotClick = useCallback((targetNodeId: string) => {
+  const handleHotspotClick = useCallback((hotspot: Hotspot) => {
     if (editMode) return;
-    setSelectedNode(targetNodeId);
-  }, [editMode, setSelectedNode]);
+    if (hotspot.targetProjectId) {
+      switchProject(hotspot.targetProjectId);
+    } else {
+      setSelectedNode(hotspot.targetNodeId);
+    }
+  }, [editMode, setSelectedNode, switchProject]);
 
   const handleDeleteHotspot = useCallback((hotspotId: string) => {
     if (!activeNodeId || !activeNode) return;
@@ -148,13 +156,21 @@ export function PhonePreview() {
                 {/* Hotspots overlay */}
                 {hotspots.map((hs) => {
                   const targetNode = nodes.find((n) => n.id === hs.targetNodeId);
+                  const targetProject = hs.targetProjectId
+                    ? projects.find((p) => p.id === hs.targetProjectId)
+                    : null;
+                  const displayLabel = targetProject
+                    ? `📑 ${targetProject.name}`
+                    : (targetNode?.data.title || hs.targetNodeId);
                   return (
                     <div
                       key={hs.id}
-                      onClick={() => handleHotspotClick(hs.targetNodeId)}
+                      onClick={() => handleHotspotClick(hs)}
                       className={`absolute transition-all ${
                         editMode
-                          ? 'border-2 border-teal-400 bg-teal-400/20'
+                          ? targetProject
+                            ? 'border-2 border-amber-400 bg-amber-400/20'
+                            : 'border-2 border-teal-400 bg-teal-400/20'
                           : 'border border-transparent hover:border-teal-400/60 hover:bg-teal-400/10'
                       }`}
                       style={{
@@ -167,8 +183,10 @@ export function PhonePreview() {
                     >
                       {editMode && (
                         <div className="absolute -top-5 left-0 flex items-center gap-1">
-                          <span className="text-[10px] bg-teal-600 text-white px-1.5 py-0.5 rounded whitespace-nowrap">
-                            {targetNode?.data.title || hs.targetNodeId}
+                          <span className={`text-[10px] text-white px-1.5 py-0.5 rounded whitespace-nowrap ${
+                            targetProject ? 'bg-amber-600' : 'bg-teal-600'
+                          }`}>
+                            {displayLabel}
                           </span>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteHotspot(hs.id); }}
@@ -178,10 +196,10 @@ export function PhonePreview() {
                           </button>
                         </div>
                       )}
-                      {!editMode && targetNode && (
+                      {!editMode && (
                         <div className="absolute inset-0 flex items-end justify-center pb-1 opacity-0 hover:opacity-100 transition-opacity">
                           <span className="text-[10px] bg-black/70 text-white px-1.5 py-0.5 rounded whitespace-nowrap">
-                            → {targetNode.data.title}
+                            → {displayLabel}
                           </span>
                         </div>
                       )}
@@ -283,26 +301,54 @@ export function PhonePreview() {
       {/* Target node selector modal */}
       {selectingTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-[#1a2332] border border-slate-700 rounded-xl w-[420px] shadow-2xl max-h-[70vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
-              <h3 className="text-sm font-semibold text-slate-100">选择跳转目标节点</h3>
-              <button onClick={() => { setSelectingTarget(null); setSearchText(''); }} className="text-slate-400 hover:text-slate-200">
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl flex flex-col" style={{ width: 520, maxHeight: '80vh' }}>
+            <div className="flex items-center justify-between border-b border-slate-700 shrink-0" style={{ padding: '20px 48px' }}>
+              <h3 className="text-lg font-semibold text-slate-100">选择跳转目标节点</h3>
+              <button onClick={() => { setSelectingTarget(null); setSearchText(''); }} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="px-3 pt-3">
+            <div className="shrink-0" style={{ padding: '20px 48px 0' }}>
               <input
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
                 placeholder="搜索节点名称..."
                 autoFocus
-                className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal-500"
+                className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
+                style={{ padding: '14px 20px' }}
               />
             </div>
-            <div className="overflow-y-auto p-2 mt-1">
+            <div className="overflow-y-auto flex-1" style={{ padding: '16px 40px 28px' }}>
+              {(() => {
+                const otherProjects = projects
+                  .filter((p) => p.id !== activeProjectId)
+                  .filter((p) => {
+                    if (!searchText) return true;
+                    return p.name.toLowerCase().includes(searchText.toLowerCase());
+                  });
+                if (otherProjects.length === 0) return null;
+                return (
+                  <div style={{ marginBottom: 12 }}>
+                    <div className="text-xs text-amber-400 font-medium" style={{ padding: '8px 8px 6px' }}>跳转到其他页面</div>
+                    {otherProjects.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => { handleSelectTarget(p.nodes[0]?.id || '', p.id); setSearchText(''); }}
+                        className="w-full text-left text-base text-slate-300 hover:bg-slate-700 rounded-xl transition-colors flex items-center gap-3"
+                        style={{ padding: '12px 16px' }}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-500" />
+                        <span className="font-medium">📑 {p.name}</span>
+                        <span className="text-sm text-slate-500">切换Tab</span>
+                      </button>
+                    ))}
+                    <div className="h-px bg-slate-700/50 mx-2" style={{ marginTop: 8 }} />
+                  </div>
+                );
+              })()}
               {(() => {
                 const filtered = nodes
                   .filter((n) => n.id !== activeNodeId)
@@ -320,21 +366,22 @@ export function PhonePreview() {
                 return Array.from(grouped.entries()).map(([title, groupNodes]) => (
                   <div key={title}>
                     {grouped.size > 1 && groupNodes.length > 1 && (
-                      <div className="text-[10px] text-slate-500 px-2 pt-2 pb-1 font-medium">{title}</div>
+                      <div className="text-xs text-slate-500 font-medium" style={{ padding: '12px 8px 6px' }}>{title}</div>
                     )}
                     {groupNodes.map((n) => (
                       <button
                         key={n.id}
                         onClick={() => { handleSelectTarget(n.id); setSearchText(''); }}
-                        className="w-full text-left px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded-lg transition-colors flex items-center gap-2"
+                        className="w-full text-left text-base text-slate-300 hover:bg-slate-700 rounded-xl transition-colors flex items-center gap-3"
+                        style={{ padding: '12px 16px' }}
                       >
-                        <span className={`w-2 h-2 rounded-full shrink-0 ${
+                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
                           n.data.nodeStyle === 'success' ? 'bg-emerald-500' :
                           n.data.nodeStyle === 'error' ? 'bg-red-500' :
                           n.data.nodeStyle === 'warning' ? 'bg-amber-500' : 'bg-slate-500'
                         }`} />
                         <span className="font-medium">{n.data.title}</span>
-                        <span className="text-xs text-slate-500">{n.data.description}</span>
+                        <span className="text-sm text-slate-500">{n.data.description}</span>
                       </button>
                     ))}
                   </div>
@@ -368,15 +415,17 @@ export function PhonePreview() {
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
               )}
             </button>
-            <div className="flex gap-1">
+            <div className="flex gap-3">
               {highlightedPath.map((nodeId, idx) => (
                 <button
                   key={nodeId}
                   onClick={() => { setPlayIndex(idx); setSelectedNode(nodeId); setPlaying(false); }}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    nodeId === selectedNodeId ? 'bg-teal-400 scale-125' : 'bg-slate-600 hover:bg-slate-500'
-                  }`}
-                />
+                  className="p-2.5 flex items-center justify-center"
+                >
+                  <span className={`block rounded-full transition-all ${
+                    nodeId === selectedNodeId ? 'w-4 h-4 bg-teal-400' : 'w-3 h-3 bg-slate-600 hover:bg-slate-500'
+                  }`} />
+                </button>
               ))}
             </div>
             <span className="text-[10px] text-slate-500">

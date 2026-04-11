@@ -7,6 +7,7 @@ export interface Hotspot {
   width: number;
   height: number;
   targetNodeId: string;
+  targetProjectId?: string;
   label?: string;
 }
 
@@ -39,6 +40,12 @@ export interface ScenarioRule {
   keywords: string[];
   path: string[];
   description: string;
+}
+
+export interface PathRecording {
+  ruleId: string | null;
+  description: string;
+  path: string[];
 }
 
 export interface ChatMessage {

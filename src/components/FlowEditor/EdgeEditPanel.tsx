@@ -46,59 +46,63 @@ export function EdgeEditPanel({ edgeId, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-[#1a2332] border border-slate-700 rounded-xl w-[360px] shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700">
-          <h3 className="text-base font-semibold text-slate-100">编辑连线</h3>
+      <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl" style={{ width: 480 }}>
+        <div className="flex items-center justify-between border-b border-slate-700" style={{ padding: '20px 48px' }}>
+          <h3 className="text-lg font-semibold text-slate-100">编辑连线</h3>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-200 transition-colors"
+            className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="p-5 space-y-4">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span className="px-2 py-1 bg-slate-800 rounded">{sourceNode?.data.title || edge.source}</span>
-            <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div style={{ padding: '28px 48px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div className="flex items-center gap-3 text-sm text-slate-400">
+            <span className="bg-slate-800 rounded-lg" style={{ padding: '8px 14px' }}>{sourceNode?.data.title || edge.source}</span>
+            <svg className="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
             </svg>
-            <span className="px-2 py-1 bg-slate-800 rounded">{targetNode?.data.title || edge.target}</span>
+            <span className="bg-slate-800 rounded-lg" style={{ padding: '8px 14px' }}>{targetNode?.data.title || edge.target}</span>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">连线标签</label>
+            <label className="block text-base font-medium text-slate-400" style={{ marginBottom: 10 }}>连线标签</label>
             <input
               type="text"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               onKeyDown={handleKeyDown}
               autoFocus
-              className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+              className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 focus:outline-none focus:border-blue-500 transition-colors"
+              style={{ padding: '14px 20px' }}
               placeholder="输入标签文字（如：搜索、选卡）"
             />
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-5 py-4 border-t border-slate-700">
+        <div className="flex items-center justify-between border-t border-slate-700" style={{ padding: '20px 48px' }}>
           <button
             onClick={handleDelete}
-            className="px-3 py-1.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-lg transition-colors"
+            className="text-base text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded-xl transition-colors"
+            style={{ padding: '14px 28px' }}
           >
             删除连线
           </button>
-          <div className="flex gap-2">
+          <div className="flex" style={{ gap: 16 }}>
             <button
               onClick={onClose}
-              className="px-4 py-1.5 text-xs text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
+              className="text-base text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
+              style={{ padding: '14px 36px' }}
             >
               取消
             </button>
             <button
               onClick={handleSave}
-              className="px-4 py-1.5 text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
+              className="text-base text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition-colors"
+              style={{ padding: '14px 36px' }}
             >
               保存
             </button>
