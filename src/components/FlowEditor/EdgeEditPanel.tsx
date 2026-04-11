@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
+import { useActiveProject } from '../../hooks/useActiveProject';
 
 interface Props {
   edgeId: string;
@@ -7,8 +8,7 @@ interface Props {
 }
 
 export function EdgeEditPanel({ edgeId, onClose }: Props) {
-  const edges = useFlowStore((s) => s.edges);
-  const nodes = useFlowStore((s) => s.nodes);
+  const { edges, nodes } = useActiveProject();
   const updateEdgeLabel = useFlowStore((s) => s.updateEdgeLabel);
   const deleteEdge = useFlowStore((s) => s.deleteEdge);
 

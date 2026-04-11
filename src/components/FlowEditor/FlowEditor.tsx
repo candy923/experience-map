@@ -10,6 +10,7 @@ import {
   type EdgeMouseHandler,
 } from '@xyflow/react';
 import { useFlowStore } from '../../hooks/useFlowStore';
+import { useActiveProject } from '../../hooks/useActiveProject';
 import { CustomNode } from './CustomNode';
 import { NodeEditPanel } from './NodeEditPanel';
 import { EdgeEditPanel } from './EdgeEditPanel';
@@ -18,8 +19,7 @@ import { Toolbar } from './Toolbar';
 const nodeTypes = { custom: CustomNode };
 
 export function FlowEditor() {
-  const nodes = useFlowStore((s) => s.nodes);
-  const edges = useFlowStore((s) => s.edges);
+  const { nodes, edges } = useActiveProject();
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const highlightedEdges = useFlowStore((s) => s.highlightedEdges);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);

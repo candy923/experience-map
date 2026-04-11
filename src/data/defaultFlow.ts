@@ -1,4 +1,4 @@
-import type { FlowNode, FlowEdge, ScenarioRule } from '../types';
+import type { FlowNode, FlowEdge, ScenarioRule, FlowProject } from '../types';
 
 export const defaultNodes: FlowNode[] = [
   {
@@ -213,3 +213,11 @@ export const defaultScenarioRules: ScenarioRule[] = [
     description: '用户领取银行提现券后，天天领首页更新为银行券已领取状态。',
   },
 ];
+
+export const defaultProject: FlowProject = {
+  id: 'default',
+  name: '天天领',
+  nodes: defaultNodes,
+  edges: defaultEdges,
+  scenarioRules: defaultScenarioRules,
+};

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useFlowStore } from '../../hooks/useFlowStore';
+import { useActiveProject } from '../../hooks/useActiveProject';
 import type { NodeMetric } from '../../types';
 
 const nodeStyles = [
@@ -12,7 +13,7 @@ const nodeStyles = [
 
 export function NodeEditPanel() {
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
-  const nodes = useFlowStore((s) => s.nodes);
+  const { nodes } = useActiveProject();
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const setEditingNode = useFlowStore((s) => s.setEditingNode);
   const deleteNode = useFlowStore((s) => s.deleteNode);

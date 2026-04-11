@@ -1,12 +1,13 @@
 import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useFlowStore } from '../../hooks/useFlowStore';
+import { useActiveProject } from '../../hooks/useActiveProject';
 import type { Hotspot } from '../../types';
 
 export function PhonePreview() {
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
-  const nodes = useFlowStore((s) => s.nodes);
+  const { nodes } = useActiveProject();
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
 

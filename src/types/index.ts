@@ -2,7 +2,7 @@ import type { Node, Edge } from '@xyflow/react';
 
 export interface Hotspot {
   id: string;
-  x: number;      // percentage 0-100
+  x: number;
   y: number;
   width: number;
   height: number;
@@ -49,7 +49,21 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface FlowProject {
+  id: string;
+  name: string;
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+  scenarioRules: ScenarioRule[];
+}
+
 export interface ProjectData {
+  projects: FlowProject[];
+  activeProjectId: string;
+}
+
+/** Legacy format for backward compatibility */
+export interface LegacyProjectData {
   nodes: FlowNode[];
   edges: FlowEdge[];
   scenarioRules: ScenarioRule[];

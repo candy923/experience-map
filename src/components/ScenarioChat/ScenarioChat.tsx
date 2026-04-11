@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useFlowStore } from '../../hooks/useFlowStore';
+import { useActiveProject } from '../../hooks/useActiveProject';
 import type { ScenarioRule } from '../../types';
 
 function ScenarioEditModal({
@@ -12,7 +13,7 @@ function ScenarioEditModal({
   onSave: (rule: ScenarioRule) => void;
   onClose: () => void;
 }) {
-  const nodes = useFlowStore((s) => s.nodes);
+  const { nodes } = useActiveProject();
   const [description, setDescription] = useState(
     rule ? rule.description.split('，')[0].split('。')[0] : ''
   );
@@ -136,7 +137,7 @@ function ScenarioEditModal({
 }
 
 export function ScenarioChat() {
-  const scenarioRules = useFlowStore((s) => s.scenarioRules);
+  const { scenarioRules } = useActiveProject();
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const setHighlightedPath = useFlowStore((s) => s.setHighlightedPath);
   const clearHighlight = useFlowStore((s) => s.clearHighlight);

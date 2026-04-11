@@ -8,14 +8,13 @@ import {
   type OnConnect,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
-import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage } from '../types';
+import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData } from '../types';
 import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
 
 interface FlowStore {
-  nodes: FlowNode[];
-  edges: FlowEdge[];
-  scenarioRules: ScenarioRule[];
+  projects: FlowProject[];
+  activeProjectId: string;
   selectedNodeId: string | null;
   highlightedPath: string[];
   highlightedEdges: string[];
@@ -23,10 +22,18 @@ interface FlowStore {
   editingNodeId: string | null;
   ready: boolean;
 
+  getActiveProject: () => FlowProject;
+
   init: () => Promise<void>;
   onNodesChange: OnNodesChange<FlowNode>;
   onEdgesChange: OnEdgesChange<FlowEdge>;
   onConnect: OnConnect;
+
+  // Project management
+  switchProject: (id: string) => void;
+  addProject: (name: string) => void;
+  renameProject: (id: string, name: string) => void;
+  deleteProject: (id: string) => void;
 
   setSelectedNode: (nodeId: string | null) => void;
   setEditingNode: (nodeId: string | null) => void;
@@ -48,15 +55,22 @@ interface FlowStore {
   clearChat: () => void;
 
   save: () => Promise<boolean>;
-  loadData: (nodes: FlowNode[], edges: FlowEdge[], rules: ScenarioRule[]) => void;
+  loadData: (data: ProjectData) => void;
 }
 
 const initialData = loadProjectData();
 
+function updateActiveProject(
+  projects: FlowProject[],
+  activeId: string,
+  updater: (p: FlowProject) => FlowProject
+): FlowProject[] {
+  return projects.map((p) => (p.id === activeId ? updater(p) : p));
+}
+
 export const useFlowStore = create<FlowStore>((set, get) => ({
-  nodes: initialData.nodes,
-  edges: initialData.edges,
-  scenarioRules: initialData.scenarioRules,
+  projects: initialData.projects,
+  activeProjectId: initialData.activeProjectId,
   selectedNodeId: null,
   highlightedPath: [],
   highlightedEdges: [],
@@ -64,41 +78,125 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   editingNodeId: null,
   ready: false,
 
+  getActiveProject: () => {
+    const { projects, activeProjectId } = get();
+    return projects.find((p) => p.id === activeProjectId) || projects[0];
+  },
+
   init: async () => {
     const data = await loadProjectDataAsync();
-    const firstId = data.nodes[0]?.id || null;
+    const activeProject = data.projects.find((p) => p.id === data.activeProjectId) || data.projects[0];
+    const firstId = activeProject.nodes[0]?.id || null;
+    const projects = data.projects.map((p) =>
+      p.id === activeProject.id
+        ? { ...p, nodes: p.nodes.map((n) => ({ ...n, selected: n.id === firstId })) }
+        : p
+    );
     set({
-      nodes: data.nodes.map((n) => ({ ...n, selected: n.id === firstId })),
-      edges: data.edges,
-      scenarioRules: data.scenarioRules,
+      projects,
+      activeProjectId: activeProject.id,
       selectedNodeId: firstId,
       ready: true,
     });
   },
 
   onNodesChange: (changes) => {
-    set({ nodes: applyNodeChanges(changes, get().nodes) });
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: applyNodeChanges(changes, p.nodes),
+      })),
+    });
   },
 
   onEdgesChange: (changes) => {
-    set({ edges: applyEdgeChanges(changes, get().edges) });
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        edges: applyEdgeChanges(changes, p.edges),
+      })),
+    });
   },
 
   onConnect: (connection) => {
+    const { activeProjectId } = get();
     const newEdge: FlowEdge = {
       ...connection,
       id: `e-${uuidv4().slice(0, 8)}`,
       type: 'default',
     };
-    set({ edges: addEdge(newEdge, get().edges) });
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        edges: addEdge(newEdge, p.edges),
+      })),
+    });
+  },
+
+  switchProject: (id) => {
+    const project = get().projects.find((p) => p.id === id);
+    if (!project) return;
+    const firstId = project.nodes[0]?.id || null;
+    set({
+      activeProjectId: id,
+      selectedNodeId: firstId,
+      highlightedPath: [],
+      highlightedEdges: [],
+      editingNodeId: null,
+      projects: get().projects.map((p) =>
+        p.id === id
+          ? { ...p, nodes: p.nodes.map((n) => ({ ...n, selected: n.id === firstId })) }
+          : p
+      ),
+    });
+  },
+
+  addProject: (name) => {
+    const id = `proj-${uuidv4().slice(0, 8)}`;
+    const newProject: FlowProject = {
+      id,
+      name,
+      nodes: [{
+        id: `node-${uuidv4().slice(0, 8)}`,
+        type: 'custom',
+        position: { x: 300, y: 200 },
+        data: { title: name, description: '起始页面', nodeStyle: 'default' },
+      }],
+      edges: [],
+      scenarioRules: [],
+    };
+    set({
+      projects: [...get().projects, newProject],
+    });
+    get().switchProject(id);
+  },
+
+  renameProject: (id, name) => {
+    set({
+      projects: get().projects.map((p) =>
+        p.id === id ? { ...p, name } : p
+      ),
+    });
+  },
+
+  deleteProject: (id) => {
+    const remaining = get().projects.filter((p) => p.id !== id);
+    if (remaining.length === 0) return;
+    set({ projects: remaining });
+    if (get().activeProjectId === id) {
+      get().switchProject(remaining[0].id);
+    }
   },
 
   setSelectedNode: (nodeId) => {
+    const { activeProjectId } = get();
     set({
       selectedNodeId: nodeId,
-      nodes: get().nodes.map((n) => ({
-        ...n,
-        selected: n.id === nodeId,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((n) => ({ ...n, selected: n.id === nodeId })),
       })),
     });
   },
@@ -108,31 +206,37 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   updateNodeData: (nodeId, data) => {
+    const { activeProjectId } = get();
     set({
-      nodes: get().nodes.map((node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, ...data } }
-          : node
-      ),
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) =>
+          node.id === nodeId ? { ...node, data: { ...node.data, ...data } } : node
+        ),
+      })),
     });
   },
 
   addNode: (position) => {
+    const { activeProjectId } = get();
     const newNode: FlowNode = {
       id: `node-${uuidv4().slice(0, 8)}`,
       type: 'custom',
       position,
-      data: {
-        title: '新节点',
-        description: '点击编辑',
-        nodeStyle: 'default',
-      },
+      data: { title: '新节点', description: '点击编辑', nodeStyle: 'default' },
     };
-    set({ nodes: [...get().nodes, newNode] });
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: [...p.nodes, newNode],
+      })),
+    });
   },
 
   duplicateNode: (nodeId) => {
-    const source = get().nodes.find((n) => n.id === nodeId);
+    const { activeProjectId } = get();
+    const project = get().getActiveProject();
+    const source = project.nodes.find((n) => n.id === nodeId);
     if (!source) return;
     const newNode: FlowNode = {
       id: `node-${uuidv4().slice(0, 8)}`,
@@ -140,35 +244,53 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       position: { x: source.position.x + 40, y: source.position.y + 40 },
       data: { ...source.data },
     };
-    set({ nodes: [...get().nodes, newNode], selectedNodeId: newNode.id });
+    set({
+      selectedNodeId: newNode.id,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: [...p.nodes, newNode],
+      })),
+    });
   },
 
   deleteNode: (nodeId) => {
+    const { activeProjectId } = get();
     set({
-      nodes: get().nodes.filter((n) => n.id !== nodeId),
-      edges: get().edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
       selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
       editingNodeId: get().editingNodeId === nodeId ? null : get().editingNodeId,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.filter((n) => n.id !== nodeId),
+        edges: p.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
+      })),
     });
   },
 
   deleteEdge: (edgeId) => {
-    set({ edges: get().edges.filter((e) => e.id !== edgeId) });
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        edges: p.edges.filter((e) => e.id !== edgeId),
+      })),
+    });
   },
 
   updateEdgeLabel: (edgeId, label) => {
+    const { activeProjectId } = get();
     set({
-      edges: get().edges.map((e) =>
-        e.id === edgeId ? { ...e, label } : e
-      ),
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        edges: p.edges.map((e) => (e.id === edgeId ? { ...e, label } : e)),
+      })),
     });
   },
 
   setHighlightedPath: (path) => {
-    const { edges } = get();
+    const project = get().getActiveProject();
     const highlightedEdges: string[] = [];
     for (let i = 0; i < path.length - 1; i++) {
-      const edge = edges.find(
+      const edge = project.edges.find(
         (e) => e.source === path[i] && e.target === path[i + 1]
       );
       if (edge) highlightedEdges.push(edge.id);
@@ -184,22 +306,37 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   addScenarioRule: (rule) => {
-    set({ scenarioRules: [...get().scenarioRules, rule] });
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        scenarioRules: [...p.scenarioRules, rule],
+      })),
+    });
   },
 
   updateScenarioRule: (id, updates) => {
+    const { activeProjectId } = get();
     set({
-      scenarioRules: get().scenarioRules.map((r) =>
-        r.id === id ? { ...r, ...updates } : r
-      ),
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        scenarioRules: p.scenarioRules.map((r) => (r.id === id ? { ...r, ...updates } : r)),
+      })),
     });
   },
 
   deleteScenarioRule: (id) => {
-    set({ scenarioRules: get().scenarioRules.filter((r) => r.id !== id) });
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        scenarioRules: p.scenarioRules.filter((r) => r.id !== id),
+      })),
+    });
   },
 
   sendChatMessage: (content) => {
+    const project = get().getActiveProject();
     const userMsg: ChatMessage = {
       id: uuidv4(),
       role: 'user',
@@ -207,16 +344,14 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       timestamp: Date.now(),
     };
 
-    const result = matchScenario(content, get().scenarioRules);
+    const result = matchScenario(content, project.scenarioRules);
 
     let systemMsg: ChatMessage;
     if (result) {
       const { rule } = result;
-      const { nodes } = get();
       const pathNames = rule.path
-        .map((id) => nodes.find((n) => n.id === id)?.data.title || id)
+        .map((id) => project.nodes.find((n) => n.id === id)?.data.title || id)
         .join(' → ');
-
       systemMsg = {
         id: uuidv4(),
         role: 'system',
@@ -224,20 +359,17 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
         matchedPath: rule.path,
         timestamp: Date.now(),
       };
-
       get().setHighlightedPath(rule.path);
     } else {
       systemMsg = {
         id: uuidv4(),
         role: 'system',
-        content: '抱歉，没有找到匹配的场景。请尝试用不同的关键词描述，例如：\n• 新用户第一次进入\n• 领取提现券\n• 参与邮储转账活动\n• 券已领完',
+        content: '抱歉，没有找到匹配的场景。',
         timestamp: Date.now(),
       };
     }
 
-    set({
-      chatMessages: [...get().chatMessages, userMsg, systemMsg],
-    });
+    set({ chatMessages: [...get().chatMessages, userMsg, systemMsg] });
   },
 
   clearChat: () => {
@@ -245,17 +377,17 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   save: async () => {
-    const { nodes, edges, scenarioRules } = get();
-    const data = { nodes, edges, scenarioRules };
+    const { projects, activeProjectId } = get();
+    const data: ProjectData = { projects, activeProjectId };
     saveToLocalStorage(data);
     return saveToFile(data);
   },
 
-  loadData: (nodes, edges, rules) => {
+  loadData: (data) => {
+    const activeProject = data.projects.find((p) => p.id === data.activeProjectId) || data.projects[0];
     set({
-      nodes,
-      edges,
-      scenarioRules: rules,
+      projects: data.projects,
+      activeProjectId: activeProject.id,
       selectedNodeId: null,
       highlightedPath: [],
       highlightedEdges: [],
@@ -263,20 +395,14 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 }));
 
-// Auto-save to localStorage only (no file write, no page refresh)
 let debounceTimer: ReturnType<typeof setTimeout>;
 useFlowStore.subscribe((state, prevState) => {
-  if (
-    state.nodes !== prevState.nodes ||
-    state.edges !== prevState.edges ||
-    state.scenarioRules !== prevState.scenarioRules
-  ) {
+  if (state.projects !== prevState.projects) {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => {
       saveToLocalStorage({
-        nodes: state.nodes,
-        edges: state.edges,
-        scenarioRules: state.scenarioRules,
+        projects: state.projects,
+        activeProjectId: state.activeProjectId,
       });
     }, 500);
   }

@@ -1,19 +1,35 @@
-import type { ProjectData } from '../types';
-import { defaultNodes, defaultEdges, defaultScenarioRules } from '../data/defaultFlow';
+import type { ProjectData, LegacyProjectData, FlowProject } from '../types';
+import { defaultProject } from '../data/defaultFlow';
 
 const STORAGE_KEY = 'experience-map-data';
 
 function getDefaults(): ProjectData {
   return {
-    nodes: defaultNodes,
-    edges: defaultEdges,
-    scenarioRules: defaultScenarioRules,
+    projects: [defaultProject],
+    activeProjectId: defaultProject.id,
   };
 }
 
-function isValidProjectData(data: unknown): data is ProjectData {
+function isValidProject(p: unknown): p is FlowProject {
+  if (!p || typeof p !== 'object') return false;
+  const proj = p as FlowProject;
+  if (!proj.id || !proj.name) return false;
+  if (!Array.isArray(proj.nodes) || proj.nodes.length === 0) return false;
+  if (!Array.isArray(proj.edges)) return false;
+  const firstNode = proj.nodes[0];
+  if (!firstNode.id || !firstNode.position || typeof firstNode.position.x !== 'number') return false;
+  return true;
+}
+
+function isNewFormat(data: unknown): data is ProjectData {
   if (!data || typeof data !== 'object') return false;
   const d = data as ProjectData;
+  return Array.isArray(d.projects) && typeof d.activeProjectId === 'string';
+}
+
+function isLegacyFormat(data: unknown): data is LegacyProjectData {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as LegacyProjectData;
   if (!Array.isArray(d.nodes) || d.nodes.length === 0) return false;
   if (!Array.isArray(d.edges)) return false;
   const firstNode = d.nodes[0];
@@ -21,20 +37,42 @@ function isValidProjectData(data: unknown): data is ProjectData {
   return true;
 }
 
+function normalize(data: unknown): ProjectData | null {
+  if (isNewFormat(data)) {
+    const valid = data.projects.filter(isValidProject);
+    if (valid.length === 0) return null;
+    return {
+      projects: valid,
+      activeProjectId: valid.find((p) => p.id === data.activeProjectId)?.id || valid[0].id,
+    };
+  }
+  if (isLegacyFormat(data)) {
+    const project: FlowProject = {
+      id: 'default',
+      name: '天天领',
+      nodes: data.nodes,
+      edges: data.edges,
+      scenarioRules: data.scenarioRules || [],
+    };
+    return { projects: [project], activeProjectId: project.id };
+  }
+  return null;
+}
+
 export async function loadProjectDataAsync(): Promise<ProjectData> {
   try {
     const resp = await fetch('/data.json?' + Date.now());
     if (resp.ok) {
-      const data = await resp.json();
-      if (isValidProjectData(data)) return data;
+      const result = normalize(await resp.json());
+      if (result) return result;
     }
   } catch { /* fall through */ }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const local = JSON.parse(raw);
-      if (isValidProjectData(local)) return local;
+      const result = normalize(JSON.parse(raw));
+      if (result) return result;
     }
   } catch { /* fall through */ }
 
@@ -45,8 +83,8 @@ export function loadProjectData(): ProjectData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const data = JSON.parse(raw);
-      if (isValidProjectData(data)) return data;
+      const result = normalize(JSON.parse(raw));
+      if (result) return result;
     }
   } catch { /* ignore */ }
   return getDefaults();
@@ -86,11 +124,10 @@ export function importProjectJSON(file: File): Promise<ProjectData> {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const data = JSON.parse(reader.result as string);
-        if (!isValidProjectData(data)) {
-          throw new Error('Invalid project data format');
-        }
-        resolve(data);
+        const raw = JSON.parse(reader.result as string);
+        const result = normalize(raw);
+        if (!result) throw new Error('Invalid project data format');
+        resolve(result);
       } catch (e) {
         reject(e);
       }
