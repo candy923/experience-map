@@ -46,6 +46,12 @@ export function PhonePreview() {
   const [searchText, setSearchText] = useState('');
   const [drawing, setDrawing] = useState<{ startX: number; startY: number; curX: number; curY: number } | null>(null);
   const [selectingTarget, setSelectingTarget] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [dragging, setDragging] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const [resizing, setResizing] = useState<{
+    id: string;
+    corner: 'tl' | 'tr' | 'bl' | 'br';
+    anchorX: number; anchorY: number;
+  } | null>(null);
   const screenRef = useRef<HTMLDivElement>(null);
 
   const activeNodeId = selectedNodeId;
@@ -54,6 +60,8 @@ export function PhonePreview() {
     return nodes.find((n) => n.id === activeNodeId);
   }, [nodes, activeNodeId]);
 
+  const hotspots = activeNode?.data.hotspots || [];
+  const hasScreenshot = !!activeNode?.data.screenshot;
 
   const toPercent = useCallback((clientX: number, clientY: number) => {
     if (!screenRef.current) return { x: 0, y: 0 };
@@ -72,12 +80,63 @@ export function PhonePreview() {
   }, [editMode, activeNode, toPercent]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!drawing) return;
     const p = toPercent(e.clientX, e.clientY);
+
+    if (dragging) {
+      const hs = hotspots.find((h) => h.id === dragging.id);
+      if (!hs || !activeNodeId) return;
+      const newX = Math.max(0, Math.min(100 - hs.width, p.x - dragging.offsetX));
+      const newY = Math.max(0, Math.min(100 - hs.height, p.y - dragging.offsetY));
+      const updated = hotspots.map((h) =>
+        h.id === dragging.id ? { ...h, x: newX, y: newY } : h
+      );
+      updateNodeData(activeNodeId, { hotspots: updated });
+      return;
+    }
+
+    if (resizing) {
+      const hs = hotspots.find((h) => h.id === resizing.id);
+      if (!hs || !activeNodeId) return;
+      const ax = resizing.anchorX;
+      const ay = resizing.anchorY;
+      const minSize = 2;
+      let newX: number, newY: number, newW: number, newH: number;
+
+      if (resizing.corner === 'br') {
+        newX = ax; newY = ay;
+        newW = Math.max(minSize, Math.min(100 - ax, p.x - ax));
+        newH = Math.max(minSize, Math.min(100 - ay, p.y - ay));
+      } else if (resizing.corner === 'bl') {
+        newY = ay;
+        newW = Math.max(minSize, ax - Math.max(0, p.x));
+        newX = ax - newW;
+        newH = Math.max(minSize, Math.min(100 - ay, p.y - ay));
+      } else if (resizing.corner === 'tr') {
+        newX = ax;
+        newW = Math.max(minSize, Math.min(100 - ax, p.x - ax));
+        newH = Math.max(minSize, ay - Math.max(0, p.y));
+        newY = ay - newH;
+      } else {
+        newW = Math.max(minSize, ax - Math.max(0, p.x));
+        newX = ax - newW;
+        newH = Math.max(minSize, ay - Math.max(0, p.y));
+        newY = ay - newH;
+      }
+
+      const updated = hotspots.map((h) =>
+        h.id === resizing.id ? { ...h, x: newX, y: newY, width: newW, height: newH } : h
+      );
+      updateNodeData(activeNodeId, { hotspots: updated });
+      return;
+    }
+
+    if (!drawing) return;
     setDrawing((d) => d ? { ...d, curX: p.x, curY: p.y } : null);
-  }, [drawing, toPercent]);
+  }, [drawing, dragging, resizing, hotspots, activeNodeId, toPercent, updateNodeData]);
 
   const handleMouseUp = useCallback(() => {
+    if (dragging) { setDragging(null); return; }
+    if (resizing) { setResizing(null); return; }
     if (!drawing) return;
     const x = Math.min(drawing.startX, drawing.curX);
     const y = Math.min(drawing.startY, drawing.curY);
@@ -86,7 +145,7 @@ export function PhonePreview() {
     setDrawing(null);
     if (width < 2 || height < 2) return;
     setSelectingTarget({ x, y, width, height });
-  }, [drawing]);
+  }, [drawing, dragging, resizing]);
 
   const handleSelectTarget = useCallback((targetNodeId: string, targetProjectId?: string) => {
     if (!selectingTarget || !activeNodeId) return;
@@ -115,9 +174,6 @@ export function PhonePreview() {
     const hotspots = (activeNode.data.hotspots || []).filter((h) => h.id !== hotspotId);
     updateNodeData(activeNodeId, { hotspots });
   }, [activeNodeId, activeNode, updateNodeData]);
-
-  const hotspots = activeNode?.data.hotspots || [];
-  const hasScreenshot = !!activeNode?.data.screenshot;
 
   const drawRect = drawing ? {
     x: Math.min(drawing.startX, drawing.curX),
@@ -162,11 +218,19 @@ export function PhonePreview() {
                   const displayLabel = targetProject
                     ? `📑 ${targetProject.name}`
                     : (targetNode?.data.title || hs.targetNodeId);
+                  const isDraggingThis = dragging?.id === hs.id || resizing?.id === hs.id;
                   return (
                     <div
                       key={hs.id}
                       onClick={() => handleHotspotClick(hs)}
-                      className={`absolute transition-all ${
+                      onMouseDown={(e) => {
+                        if (!editMode) return;
+                        e.stopPropagation();
+                        e.preventDefault();
+                        const p = toPercent(e.clientX, e.clientY);
+                        setDragging({ id: hs.id, offsetX: p.x - hs.x, offsetY: p.y - hs.y });
+                      }}
+                      className={`absolute ${isDraggingThis ? '' : 'transition-all'} ${
                         editMode
                           ? targetProject
                             ? 'border-2 border-amber-400 bg-amber-400/20'
@@ -178,23 +242,47 @@ export function PhonePreview() {
                         top: `${hs.y}%`,
                         width: `${hs.width}%`,
                         height: `${hs.height}%`,
-                        cursor: editMode ? 'default' : 'pointer',
+                        cursor: editMode ? 'move' : 'pointer',
                       }}
                     >
                       {editMode && (
-                        <div className="absolute -top-5 left-0 flex items-center gap-1">
-                          <span className={`text-[10px] text-white px-1.5 py-0.5 rounded whitespace-nowrap ${
-                            targetProject ? 'bg-amber-600' : 'bg-teal-600'
-                          }`}>
-                            {displayLabel}
-                          </span>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteHotspot(hs.id); }}
-                            className="w-4 h-4 bg-red-600 text-white rounded flex items-center justify-center text-[10px] leading-none"
-                          >
-                            ×
-                          </button>
-                        </div>
+                        <>
+                          <div className="absolute -top-5 left-0 flex items-center gap-1">
+                            <span className={`text-[10px] text-white px-1.5 py-0.5 rounded whitespace-nowrap ${
+                              targetProject ? 'bg-amber-600' : 'bg-teal-600'
+                            }`}>
+                              {displayLabel}
+                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteHotspot(hs.id); }}
+                              className="w-4 h-4 bg-red-600 text-white rounded flex items-center justify-center text-[10px] leading-none"
+                            >
+                              ×
+                            </button>
+                          </div>
+                          {(['tl', 'tr', 'bl', 'br'] as const).map((corner) => {
+                            const pos = {
+                              tl: { top: -3, left: -3, cursor: 'nwse-resize' },
+                              tr: { top: -3, right: -3, cursor: 'nesw-resize' },
+                              bl: { bottom: -3, left: -3, cursor: 'nesw-resize' },
+                              br: { bottom: -3, right: -3, cursor: 'nwse-resize' },
+                            }[corner];
+                            return (
+                              <div
+                                key={corner}
+                                onMouseDown={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  const anchorX = corner.includes('l') ? hs.x + hs.width : hs.x;
+                                  const anchorY = corner.includes('t') ? hs.y + hs.height : hs.y;
+                                  setResizing({ id: hs.id, corner, anchorX, anchorY });
+                                }}
+                                className="absolute w-[7px] h-[7px] bg-white border border-teal-500 rounded-[1px] z-10"
+                                style={{ ...pos, cursor: pos.cursor }}
+                              />
+                            );
+                          })}
+                        </>
                       )}
                       {!editMode && (
                         <div className="absolute inset-0 flex items-end justify-center pb-1 opacity-0 hover:opacity-100 transition-opacity">
@@ -282,7 +370,7 @@ export function PhonePreview() {
         {/* Edit mode toggle */}
         {hasScreenshot && !highlightedPath.length && (
           <button
-            onClick={() => { setEditMode(!editMode); setDrawing(null); setSelectingTarget(null); }}
+            onClick={() => { setEditMode(!editMode); setDrawing(null); setSelectingTarget(null); setDragging(null); setResizing(null); }}
             className={`mt-1 px-3 py-1.5 text-xs rounded-lg transition-colors ${
               editMode
                 ? 'bg-teal-600 text-white'
