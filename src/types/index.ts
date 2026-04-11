@@ -10,11 +10,18 @@ export interface Hotspot {
   label?: string;
 }
 
+export interface NodeMetric {
+  id: string;
+  label: string;
+  value: string;
+}
+
 export interface FlowNodeData {
   title: string;
   description: string;
   screenshot?: string;
   hotspots?: Hotspot[];
+  metrics?: NodeMetric[];
   nodeStyle: 'default' | 'success' | 'error' | 'warning';
   [key: string]: unknown;
 }

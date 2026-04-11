@@ -40,6 +40,10 @@ interface FlowStore {
   setHighlightedPath: (path: string[]) => void;
   clearHighlight: () => void;
 
+  addScenarioRule: (rule: ScenarioRule) => void;
+  updateScenarioRule: (id: string, updates: Partial<ScenarioRule>) => void;
+  deleteScenarioRule: (id: string) => void;
+
   sendChatMessage: (content: string) => void;
   clearChat: () => void;
 
@@ -179,6 +183,22 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
     set({ highlightedPath: [], highlightedEdges: [] });
   },
 
+  addScenarioRule: (rule) => {
+    set({ scenarioRules: [...get().scenarioRules, rule] });
+  },
+
+  updateScenarioRule: (id, updates) => {
+    set({
+      scenarioRules: get().scenarioRules.map((r) =>
+        r.id === id ? { ...r, ...updates } : r
+      ),
+    });
+  },
+
+  deleteScenarioRule: (id) => {
+    set({ scenarioRules: get().scenarioRules.filter((r) => r.id !== id) });
+  },
+
   sendChatMessage: (content) => {
     const userMsg: ChatMessage = {
       id: uuidv4(),
@@ -210,7 +230,7 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
       systemMsg = {
         id: uuidv4(),
         role: 'system',
-        content: '抱歉，没有找到匹配的场景。请尝试用不同的关键词描述，例如：\n• 新用户第一次绑卡\n• 用户被风控拦截\n• 短信验证码收不到\n• 信用卡绑定',
+        content: '抱歉，没有找到匹配的场景。请尝试用不同的关键词描述，例如：\n• 新用户第一次进入\n• 领取提现券\n• 参与邮储转账活动\n• 券已领完',
         timestamp: Date.now(),
       };
     }

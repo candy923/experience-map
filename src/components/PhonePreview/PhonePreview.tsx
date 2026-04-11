@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback } from 'react';
+import { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import type { Hotspot } from '../../types';
@@ -10,30 +10,46 @@ export function PhonePreview() {
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
 
-  const [pathIndex, setPathIndex] = useState(0);
   const [editMode, setEditMode] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [playIndex, setPlayIndex] = useState(0);
+  const playTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    if (highlightedPath.length > 1) {
+      setPlaying(false);
+      setPlayIndex(0);
+      setSelectedNode(highlightedPath[0]);
+    } else {
+      setPlaying(false);
+    }
+  }, [highlightedPath, setSelectedNode]);
+
+  useEffect(() => {
+    if (!playing || highlightedPath.length <= 1) return;
+    clearTimeout(playTimerRef.current);
+    playTimerRef.current = setTimeout(() => {
+      const next = playIndex + 1;
+      if (next < highlightedPath.length) {
+        setPlayIndex(next);
+        setSelectedNode(highlightedPath[next]);
+      } else {
+        setPlaying(false);
+      }
+    }, 2000);
+    return () => clearTimeout(playTimerRef.current);
+  }, [playing, playIndex, highlightedPath, setSelectedNode]);
   const [searchText, setSearchText] = useState('');
   const [drawing, setDrawing] = useState<{ startX: number; startY: number; curX: number; curY: number } | null>(null);
   const [selectingTarget, setSelectingTarget] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const screenRef = useRef<HTMLDivElement>(null);
 
-  const activeNodeId = useMemo(() => {
-    if (highlightedPath.length > 0) {
-      return highlightedPath[Math.min(pathIndex, highlightedPath.length - 1)];
-    }
-    return selectedNodeId;
-  }, [highlightedPath, pathIndex, selectedNodeId]);
+  const activeNodeId = selectedNodeId;
 
   const activeNode = useMemo(() => {
     return nodes.find((n) => n.id === activeNodeId);
   }, [nodes, activeNodeId]);
 
-  const pathNodes = useMemo(() => {
-    if (highlightedPath.length === 0) return [];
-    return highlightedPath.map((id) => nodes.find((n) => n.id === id)).filter(Boolean);
-  }, [highlightedPath, nodes]);
-
-  const safePathIndex = Math.min(pathIndex, Math.max(0, highlightedPath.length - 1));
 
   const toPercent = useCallback((clientX: number, clientY: number) => {
     if (!screenRef.current) return { x: 0, y: 0 };
@@ -102,32 +118,8 @@ export function PhonePreview() {
   } : null;
 
   return (
-    <div className="flex flex-col items-center justify-center h-full p-6 bg-[#0a0f1a]">
-      {/* Path navigation */}
-      {highlightedPath.length > 0 && (
-        <div className="mb-4 flex items-center gap-2 flex-wrap justify-center max-w-[380px]">
-          {pathNodes.map((node, idx) => (
-            <div key={node!.id} className="flex items-center">
-              <button
-                onClick={() => setPathIndex(idx)}
-                className={`
-                  px-2 py-1 text-xs rounded-md transition-all
-                  ${idx === safePathIndex
-                    ? 'bg-teal-600 text-white'
-                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}
-                `}
-              >
-                {node!.data.title}
-              </button>
-              {idx < pathNodes.length - 1 && (
-                <svg className="w-3 h-3 text-slate-600 mx-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="flex flex-col items-center justify-center h-full p-6 bg-[#0a0f1a] overflow-y-auto">
+      {/* Path navigation removed — use left flowchart to navigate */}
 
       {/* Phone mockup */}
       <div className="relative bg-black rounded-[40px] border-[3px] border-slate-700 shadow-2xl shadow-black/50 overflow-hidden" style={{ width: 300, height: 300 * (1624 / 750) + 6 }}>
@@ -246,8 +238,8 @@ export function PhonePreview() {
         <div className="absolute bottom-[6px] left-1/2 -translate-x-1/2 w-[100px] h-[4px] bg-slate-600 rounded-full z-10" />
       </div>
 
-      {/* Controls below phone */}
-      <div className="mt-4 flex flex-col items-center gap-2">
+      {/* Controls below phone — fixed height to prevent layout shift */}
+      <div style={{ marginTop: 24 }} className="flex flex-col items-center gap-4 w-[320px] min-h-[140px] shrink-0">
         {activeNode && (
           <div className="text-center">
             <p className="text-sm font-medium text-slate-300">{activeNode.data.title}</p>
@@ -255,8 +247,20 @@ export function PhonePreview() {
           </div>
         )}
 
+        {/* Metrics cards */}
+        {activeNode?.data.metrics && activeNode.data.metrics.length > 0 && (
+          <div className="flex flex-wrap gap-3 justify-center w-full">
+            {activeNode.data.metrics.map((m) => (
+              <div key={m.id} className="px-5 py-3 bg-slate-800/80 border border-slate-700 rounded-lg text-center min-w-[90px]">
+                <div className="text-xs text-slate-500">{m.label}</div>
+                <div className="text-base font-semibold text-slate-200 mt-1">{m.value}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Edit mode toggle */}
-        {hasScreenshot && (
+        {hasScreenshot && !highlightedPath.length && (
           <button
             onClick={() => { setEditMode(!editMode); setDrawing(null); setSelectingTarget(null); }}
             className={`mt-1 px-3 py-1.5 text-xs rounded-lg transition-colors ${
@@ -273,32 +277,6 @@ export function PhonePreview() {
         )}
       </div>
 
-      {/* Path step navigation */}
-      {highlightedPath.length > 1 && (
-        <div className="mt-3 flex items-center gap-3">
-          <button
-            onClick={() => setPathIndex(Math.max(0, safePathIndex - 1))}
-            disabled={safePathIndex === 0}
-            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="text-xs text-slate-500">
-            {safePathIndex + 1} / {highlightedPath.length}
-          </span>
-          <button
-            onClick={() => setPathIndex(Math.min(highlightedPath.length - 1, safePathIndex + 1))}
-            disabled={safePathIndex >= highlightedPath.length - 1}
-            className="p-2 rounded-lg bg-slate-800 text-slate-400 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-        </div>
-      )}
 
       {/* Target node selector modal */}
       {selectingTarget && (
@@ -364,6 +342,47 @@ export function PhonePreview() {
           </div>
         </div>
       )}
+
+      {/* Playback controls — fixed at bottom */}
+      <div className="shrink-0 h-[50px] flex items-center justify-center border-t border-slate-800">
+        {highlightedPath.length > 1 ? (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                if (playing) {
+                  setPlaying(false);
+                } else {
+                  const nextIdx = playIndex >= highlightedPath.length - 1 ? 0 : playIndex;
+                  setPlayIndex(nextIdx);
+                  setSelectedNode(highlightedPath[nextIdx]);
+                  setPlaying(true);
+                }
+              }}
+              className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 transition-colors"
+            >
+              {playing ? (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z" /></svg>
+              ) : (
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+              )}
+            </button>
+            <div className="flex gap-1">
+              {highlightedPath.map((nodeId, idx) => (
+                <button
+                  key={nodeId}
+                  onClick={() => { setPlayIndex(idx); setSelectedNode(nodeId); setPlaying(false); }}
+                  className={`w-2 h-2 rounded-full transition-all ${
+                    nodeId === selectedNodeId ? 'bg-teal-400 scale-125' : 'bg-slate-600 hover:bg-slate-500'
+                  }`}
+                />
+              ))}
+            </div>
+            <span className="text-[10px] text-slate-500">
+              {playIndex + 1}/{highlightedPath.length}
+            </span>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
