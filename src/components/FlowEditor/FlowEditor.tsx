@@ -30,7 +30,7 @@ export function FlowEditor() {
   const duplicateNode = useFlowStore((s) => s.duplicateNode);
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
   const prevSelectedRef = useRef<string | null>(null);
 
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);

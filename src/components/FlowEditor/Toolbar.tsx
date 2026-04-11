@@ -3,15 +3,9 @@ import { useFlowStore } from '../../hooks/useFlowStore';
 import { exportProjectJSON, importProjectJSON } from '../../services/storage';
 
 export function Toolbar() {
-  const { nodes, edges, scenarioRules, addNode, save, loadData } = useFlowStore();
+  const { nodes, edges, scenarioRules, save, loadData } = useFlowStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-
-  const handleAddNode = useCallback(() => {
-    const centerX = 300 + Math.random() * 200;
-    const centerY = 300 + Math.random() * 200;
-    addNode({ x: centerX, y: centerY });
-  }, [addNode]);
 
   const handleSave = useCallback(async () => {
     setSaveStatus('saving');
