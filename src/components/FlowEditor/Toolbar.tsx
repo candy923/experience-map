@@ -39,19 +39,6 @@ export function Toolbar() {
   return (
     <div className="flex items-center gap-1.5 p-2 bg-[#111827] border-b border-slate-700/50">
       <button
-        onClick={handleAddNode}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors"
-        title="添加节点"
-      >
-        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-        添加节点
-      </button>
-
-      <div className="w-px h-5 bg-slate-700 mx-1" />
-
-      <button
         onClick={handleSave}
         className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors ${
           saveStatus === 'saved'

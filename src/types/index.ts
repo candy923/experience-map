@@ -1,9 +1,20 @@
 import type { Node, Edge } from '@xyflow/react';
 
+export interface Hotspot {
+  id: string;
+  x: number;      // percentage 0-100
+  y: number;
+  width: number;
+  height: number;
+  targetNodeId: string;
+  label?: string;
+}
+
 export interface FlowNodeData {
   title: string;
   description: string;
   screenshot?: string;
+  hotspots?: Hotspot[];
   nodeStyle: 'default' | 'success' | 'error' | 'warning';
   [key: string]: unknown;
 }

@@ -62,10 +62,12 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
 
   init: async () => {
     const data = await loadProjectDataAsync();
+    const firstId = data.nodes[0]?.id || null;
     set({
-      nodes: data.nodes,
+      nodes: data.nodes.map((n) => ({ ...n, selected: n.id === firstId })),
       edges: data.edges,
       scenarioRules: data.scenarioRules,
+      selectedNodeId: firstId,
       ready: true,
     });
   },
@@ -88,7 +90,13 @@ export const useFlowStore = create<FlowStore>((set, get) => ({
   },
 
   setSelectedNode: (nodeId) => {
-    set({ selectedNodeId: nodeId });
+    set({
+      selectedNodeId: nodeId,
+      nodes: get().nodes.map((n) => ({
+        ...n,
+        selected: n.id === nodeId,
+      })),
+    });
   },
 
   setEditingNode: (nodeId) => {

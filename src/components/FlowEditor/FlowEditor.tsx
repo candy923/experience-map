@@ -30,12 +30,17 @@ export function FlowEditor() {
   const duplicateNode = useFlowStore((s) => s.duplicateNode);
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, fitView } = useReactFlow();
+  const prevSelectedRef = useRef<string | null>(null);
 
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
   const lastClickTime = useRef(0);
   const lastClickPos = useRef({ x: 0, y: 0 });
   const copiedNodeIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    prevSelectedRef.current = selectedNodeId;
+  }, [selectedNodeId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -127,6 +132,7 @@ export function FlowEditor() {
           onNodeClick={handleNodeClick}
           onPaneClick={handlePaneClick}
           onEdgeDoubleClick={handleEdgeDoubleClick}
+          connectionRadius={30}
           zoomOnDoubleClick={false}
           fitView
           fitViewOptions={{ padding: 0.2 }}

@@ -89,11 +89,20 @@ body {
 }
 
 .react-flow__handle {
-  width: 8px !important;
-  height: 8px !important;
+  width: 10px !important;
+  height: 10px !important;
   background-color: var(--border-color) !important;
   border: 2px solid var(--bg-card) !important;
 }
+.react-flow__handle::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+}
 .react-flow__handle:hover {
   background-color: var(--accent-blue) !important;
+  transform: scale(1.5);
 }
