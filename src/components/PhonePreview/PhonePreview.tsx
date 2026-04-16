@@ -184,21 +184,24 @@ export function PhonePreview() {
 
   return (
     <div className="flex flex-col items-center justify-center h-full bg-[#0a0f1a]" style={{ paddingLeft: 24, paddingRight: 24, paddingTop: 40 }}>
-      {/* Phone mockup — responsive height */}
+      {/* Phone mockup — responsive height, container-query driven scaling */}
       <div
-        className="relative bg-black rounded-[40px] border-[3px] border-slate-700 shadow-2xl shadow-black/50 overflow-hidden shrink"
-        style={{ width: 300, maxHeight: 'calc(100vh - 280px)', aspectRatio: '750 / 1624' }}
+        style={{ containerType: 'inline-size', width: 'min(300px, calc((100vh - 280px) * 750 / 1624))', aspectRatio: '750 / 1624' }}
       >
-        <div className="absolute top-[10px] left-1/2 -translate-x-1/2 w-[100px] h-[28px] bg-black rounded-full z-10" />
+      <div
+        className="relative bg-black border-solid border-slate-700 shadow-2xl shadow-black/50 overflow-hidden w-full h-full"
+        style={{ borderRadius: '13.333cqw', borderWidth: '1cqw' }}
+      >
+        <div className="absolute left-1/2 -translate-x-1/2 bg-black rounded-full z-10" style={{ top: '3.333cqw', width: '33.333cqw', height: '9.333cqw' }} />
 
         {/* Screen */}
         <div
           ref={screenRef}
-          className="absolute inset-0 overflow-hidden rounded-[37px]"
+          className="absolute inset-0 overflow-hidden"
+          style={{ borderRadius: '12.333cqw', cursor: editMode && hasScreenshot ? 'crosshair' : 'default' }}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
-          style={{ cursor: editMode && hasScreenshot ? 'crosshair' : 'default' }}
         >
           {activeNode ? (
             activeNode.data.screenshot ? (
@@ -343,7 +346,8 @@ export function PhonePreview() {
           )}
         </div>
 
-        <div className="absolute bottom-[6px] left-1/2 -translate-x-1/2 w-[100px] h-[4px] bg-slate-600 rounded-full z-10" />
+        <div className="absolute left-1/2 -translate-x-1/2 bg-slate-600 rounded-full z-10" style={{ bottom: '2cqw', width: '33.333cqw', height: '1.333cqw' }} />
+      </div>
       </div>
 
       {/* Controls below phone — fixed height to prevent layout shift */}
