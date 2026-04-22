@@ -50,6 +50,16 @@ body {
   background: #475569;
 }
 
+/* Horizontally scrollable rows (e.g. toolbars) where the scrollbar itself
+ * would add visual noise. Still scrollable via trackpad / shift+wheel. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .react-flow__minimap {
   background-color: var(--bg-secondary) !important;
   border: 1px solid var(--border-color) !important;

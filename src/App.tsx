@@ -4,6 +4,7 @@ import { FlowEditor } from './components/FlowEditor/FlowEditor';
 import { PhonePreview } from './components/PhonePreview/PhonePreview';
 import { ScenarioChat } from './components/ScenarioChat/ScenarioChat';
 import { useFlowStore } from './hooks/useFlowStore';
+import { useLiveDataSync } from './hooks/useLiveDataSync';
 
 export default function App() {
   const init = useFlowStore((s) => s.init);
@@ -12,6 +13,8 @@ export default function App() {
   useEffect(() => {
     init();
   }, [init]);
+
+  useLiveDataSync();
 
   if (!ready) {
     return (

@@ -20,6 +20,12 @@ interface HistoryEntry {
 let _isDragging = false;
 const MAX_HISTORY = 50;
 
+// When loadData is invoked (typically from live-sync after an external
+// edit), we've just imported content FROM disk — saving it back would be
+// redundant work and, combined with any latency on the file watcher,
+// enough to form a save→broadcast→load→save echo loop. Suppress one save.
+let _suppressNextPersist = false;
+
 interface FlowStore {
   projects: FlowProject[];
   activeProjectId: string;
@@ -50,10 +56,15 @@ interface FlowStore {
   setEditingNode: (nodeId: string | null) => void;
   updateNodeData: (nodeId: string, data: Partial<FlowNode['data']>) => void;
   addNode: (position: { x: number; y: number }) => void;
+  importNodes: (nodes: FlowNode[], edges: FlowEdge[]) => void;
   duplicateNode: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
   deleteEdge: (edgeId: string) => void;
   updateEdgeLabel: (edgeId: string, label: string) => void;
+
+  previewEdgeSync: (projectId?: string) => { toAdd: number; toRemove: number };
+  syncEdgesFromHotspots: (projectId?: string) => void;
+  clearProjectEdges: (projectId?: string) => void;
 
   undo: () => void;
   redo: () => void;
@@ -133,12 +144,16 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   },
 
   onNodesChange: (changes) => {
-    const filtered = changes.filter((c) => c.type !== 'select');
-    if (filtered.length === 0) return;
+    // Use the non-select subset only for deciding whether to push a history
+    // entry; pure selection toggles shouldn't pollute undo. But the actual
+    // changes (including select) MUST be applied so ReactFlow can deselect
+    // a node when the user clicks an edge — otherwise the node lingers as
+    // "selected" in our store and gets killed alongside the edge on Delete.
+    const nonSelect = changes.filter((c) => c.type !== 'select');
 
-    const hasRemove = filtered.some((c) => c.type === 'remove');
-    const hasDragStart = filtered.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === true);
-    const hasDragEnd = filtered.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === false);
+    const hasRemove = nonSelect.some((c) => c.type === 'remove');
+    const hasDragStart = nonSelect.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === true);
+    const hasDragEnd = nonSelect.some((c) => c.type === 'position' && 'dragging' in c && c.dragging === false);
 
     if (hasRemove) {
       pushHistory();
@@ -154,7 +169,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
-        nodes: applyNodeChanges(filtered, p.nodes),
+        nodes: applyNodeChanges(changes, p.nodes),
       })),
     });
   },
@@ -305,6 +320,20 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     });
   },
 
+  importNodes: (newNodes, newEdges) => {
+    if (newNodes.length === 0) return;
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      selectedNodeId: newNodes[0].id,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: [...p.nodes, ...newNodes.map((n) => ({ ...n, selected: false }))],
+        edges: [...p.edges, ...newEdges],
+      })),
+    });
+  },
+
   duplicateNode: (nodeId) => {
     pushHistory();
     const { activeProjectId } = get();
@@ -355,10 +384,91 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     pushHistory();
     const { activeProjectId } = get();
     set({
-      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
-        ...p,
-        edges: p.edges.map((e) => (e.id === edgeId ? { ...e, label } : e)),
-      })),
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => {
+        const edge = p.edges.find((e) => e.id === edgeId);
+        const hotspotId = edge?.data?.hotspotId;
+        return {
+          ...p,
+          edges: p.edges.map((e) => (e.id === edgeId ? { ...e, label } : e)),
+          // Write the new label back to the originating hotspot so the
+          // in-phone tooltip stays in sync with the canvas edge label.
+          nodes: hotspotId
+            ? p.nodes.map((n) => {
+                const hs = n.data.hotspots;
+                if (!hs?.some((h) => h.id === hotspotId)) return n;
+                return {
+                  ...n,
+                  data: {
+                    ...n.data,
+                    hotspots: hs.map((h) =>
+                      h.id === hotspotId ? { ...h, label: label || undefined } : h
+                    ),
+                  },
+                };
+              })
+            : p.nodes,
+        };
+      }),
+    });
+  },
+
+  previewEdgeSync: (projectId) => {
+    const { projects, activeProjectId } = get();
+    const pid = projectId || activeProjectId;
+    const project = projects.find((p) => p.id === pid);
+    if (!project) return { toAdd: 0, toRemove: 0 };
+    const nodeIds = new Set(project.nodes.map((n) => n.id));
+    let toAdd = 0;
+    for (const n of project.nodes) {
+      for (const hs of n.data.hotspots || []) {
+        // Cross-project hotspots don't produce edges (different canvas).
+        if (hs.targetProjectId && hs.targetProjectId !== pid) continue;
+        if (!nodeIds.has(hs.targetNodeId)) continue;
+        toAdd += 1;
+      }
+    }
+    const toRemove = project.edges.filter((e) => !!e.data?.hotspotId).length;
+    return { toAdd, toRemove };
+  },
+
+  syncEdgesFromHotspots: (projectId) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    const pid = projectId || activeProjectId;
+    set({
+      projects: get().projects.map((p) => {
+        if (p.id !== pid) return p;
+        const nodeIds = new Set(p.nodes.map((n) => n.id));
+        // Keep only manually drawn edges (those without a hotspotId tag).
+        const manualEdges = p.edges.filter((e) => !e.data?.hotspotId);
+        const derived: FlowEdge[] = [];
+        for (const node of p.nodes) {
+          for (const hs of node.data.hotspots || []) {
+            if (hs.targetProjectId && hs.targetProjectId !== pid) continue;
+            if (!nodeIds.has(hs.targetNodeId)) continue;
+            derived.push({
+              id: `e-${uuidv4().slice(0, 8)}`,
+              source: node.id,
+              target: hs.targetNodeId,
+              type: 'default',
+              label: hs.label,
+              data: { hotspotId: hs.id },
+            });
+          }
+        }
+        return { ...p, edges: [...manualEdges, ...derived] };
+      }),
+    });
+  },
+
+  clearProjectEdges: (projectId) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    const pid = projectId || activeProjectId;
+    set({
+      projects: get().projects.map((p) =>
+        p.id === pid ? { ...p, edges: [] } : p
+      ),
     });
   },
 
@@ -570,6 +680,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
 
   loadData: (data) => {
     const activeProject = data.projects.find((p) => p.id === data.activeProjectId) || data.projects[0];
+    _suppressNextPersist = true;
     set({
       projects: data.projects,
       activeProjectId: activeProject.id,
@@ -584,12 +695,36 @@ export const useFlowStore = create<FlowStore>((set, get) => {
 
 let localTimer: ReturnType<typeof setTimeout>;
 let fileTimer: ReturnType<typeof setTimeout>;
+// Track the last serialized payload we wrote so we can skip redundant
+// saves (e.g. projects reference churned but content is identical, which
+// happens on selection toggles and live-sync replays). We compute this
+// inside the debounced callback, not in the subscribe handler, so that
+// stringifying a potentially multi-MB payload (base64 screenshots) only
+// happens at most once per write window.
+let lastPersistedSignature = '';
+
+function persistIfChanged(): void {
+  const state = useFlowStore.getState();
+  const data = { projects: state.projects, activeProjectId: state.activeProjectId };
+  const signature = JSON.stringify(data);
+  if (signature === lastPersistedSignature) return;
+  lastPersistedSignature = signature;
+  saveToLocalStorage(data);
+  void saveToFile(data);
+}
+
 useFlowStore.subscribe((state, prevState) => {
-  if (state.projects !== prevState.projects) {
-    const data = { projects: state.projects, activeProjectId: state.activeProjectId };
-    clearTimeout(localTimer);
-    localTimer = setTimeout(() => saveToLocalStorage(data), 500);
-    clearTimeout(fileTimer);
-    fileTimer = setTimeout(() => saveToFile(data), 1500);
+  if (state.projects === prevState.projects) return;
+  if (_suppressNextPersist) {
+    _suppressNextPersist = false;
+    return;
   }
+  // localStorage is cheap — update it quickly for reload safety.
+  // The file write is the expensive one; debounce it longer to coalesce
+  // rapid edits and to ride out any live-sync echo caused by an external
+  // file change that we've just re-fetched.
+  clearTimeout(localTimer);
+  localTimer = setTimeout(persistIfChanged, 500);
+  clearTimeout(fileTimer);
+  fileTimer = setTimeout(persistIfChanged, 1500);
 });

@@ -30,6 +30,10 @@ export interface FlowNodeData {
 export type FlowNode = Node<FlowNodeData, 'custom'>;
 
 export interface FlowEdgeData {
+  /** Marks this edge as derived from a node's Hotspot. Derived edges are
+   * rebuilt whenever the user runs "从 Hotspot 生成连线"; manually drawn
+   * edges (without this field) are never touched. */
+  hotspotId?: string;
   [key: string]: unknown;
 }
 

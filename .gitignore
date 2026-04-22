@@ -4,3 +4,7 @@ dist
 *.local
 .DS_Store
 .env
+
+# 本地数据备份文件
+data.json.backup-*
+*.backup-*

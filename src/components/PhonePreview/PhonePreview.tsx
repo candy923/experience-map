@@ -390,94 +390,148 @@ export function PhonePreview() {
       </div>
 
 
-      {/* Target node selector modal */}
+      {/* Target node selector modal — 缩略图网格 */}
       {selectingTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl flex flex-col" style={{ width: 520, maxHeight: '80vh' }}>
-            <div className="flex items-center justify-between border-b border-slate-700 shrink-0" style={{ padding: '20px 48px' }}>
-              <h3 className="text-lg font-semibold text-slate-100">选择跳转目标节点</h3>
+          <div className="bg-[#1a2332] border border-slate-700 rounded-2xl shadow-2xl flex flex-col" style={{ width: 780, maxHeight: '85vh' }}>
+            <div className="flex items-center justify-between border-b border-slate-700 shrink-0" style={{ padding: '20px 32px' }}>
+              <h3 className="text-lg font-semibold text-slate-100">选择跳转目标</h3>
               <button onClick={() => { setSelectingTarget(null); setSearchText(''); }} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
-            <div className="shrink-0" style={{ padding: '20px 48px 0' }}>
+            <div className="shrink-0" style={{ padding: '16px 32px 0' }}>
               <input
                 type="text"
                 value={searchText}
                 onChange={(e) => setSearchText(e.target.value)}
-                placeholder="搜索节点名称..."
+                placeholder="搜索节点标题或描述..."
                 autoFocus
                 className="w-full bg-slate-800 border border-slate-600 rounded-xl text-base text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
-                style={{ padding: '14px 20px' }}
+                style={{ padding: '12px 18px' }}
               />
             </div>
-            <div className="overflow-y-auto flex-1" style={{ padding: '16px 40px 28px' }}>
+            <div className="overflow-y-auto flex-1" style={{ padding: '20px 32px 28px' }}>
               {(() => {
+                const s = searchText.toLowerCase();
                 const otherProjects = projects
                   .filter((p) => p.id !== activeProjectId)
-                  .filter((p) => {
-                    if (!searchText) return true;
-                    return p.name.toLowerCase().includes(searchText.toLowerCase());
-                  });
-                if (otherProjects.length === 0) return null;
-                return (
-                  <div style={{ marginBottom: 12 }}>
-                    <div className="text-xs text-amber-400 font-medium" style={{ padding: '8px 8px 6px' }}>跳转到其他页面</div>
-                    {otherProjects.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => { handleSelectTarget(p.nodes[0]?.id || '', p.id); setSearchText(''); }}
-                        className="w-full text-left text-base text-slate-300 hover:bg-slate-700 rounded-xl transition-colors flex items-center gap-3"
-                        style={{ padding: '12px 16px' }}
-                      >
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0 bg-amber-500" />
-                        <span className="font-medium">📑 {p.name}</span>
-                        <span className="text-sm text-slate-500">切换Tab</span>
-                      </button>
-                    ))}
-                    <div className="h-px bg-slate-700/50 mx-2" style={{ marginTop: 8 }} />
-                  </div>
-                );
-              })()}
-              {(() => {
-                const filtered = nodes
+                  .filter((p) => !searchText || p.name.toLowerCase().includes(s));
+                const filteredNodes = nodes
                   .filter((n) => n.id !== activeNodeId)
                   .filter((n) => {
                     if (!searchText) return true;
-                    const s = searchText.toLowerCase();
-                    return n.data.title.toLowerCase().includes(s) || n.data.description.toLowerCase().includes(s);
+                    return (
+                      n.data.title.toLowerCase().includes(s) ||
+                      (n.data.description || '').toLowerCase().includes(s)
+                    );
                   });
-                const grouped = new Map<string, typeof filtered>();
-                for (const n of filtered) {
-                  const group = n.data.title;
-                  if (!grouped.has(group)) grouped.set(group, []);
-                  grouped.get(group)!.push(n);
+                const styleColor = (style: string) =>
+                  style === 'success' ? 'bg-emerald-500' :
+                  style === 'error' ? 'bg-red-500' :
+                  style === 'warning' ? 'bg-amber-500' : 'bg-slate-500';
+
+                if (otherProjects.length === 0 && filteredNodes.length === 0) {
+                  return <div className="text-center text-slate-500 py-12 text-sm">没有找到匹配的节点</div>;
                 }
-                return Array.from(grouped.entries()).map(([title, groupNodes]) => (
-                  <div key={title}>
-                    {grouped.size > 1 && groupNodes.length > 1 && (
-                      <div className="text-xs text-slate-500 font-medium" style={{ padding: '12px 8px 6px' }}>{title}</div>
+
+                return (
+                  <>
+                    {otherProjects.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div className="text-xs font-medium text-amber-400" style={{ padding: '0 4px 10px' }}>
+                          跳转到其他 Tab
+                        </div>
+                        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                          {otherProjects.map((p) => {
+                            const firstNode = p.nodes[0];
+                            return (
+                              <button
+                                key={p.id}
+                                onClick={() => { handleSelectTarget(firstNode?.id || '', p.id); setSearchText(''); }}
+                                className="group flex flex-col rounded-xl overflow-hidden border border-amber-700/40 bg-slate-900/40 hover:border-amber-400 hover:bg-amber-950/30 transition-colors text-left"
+                              >
+                                <div className="bg-slate-950 flex items-center justify-center relative" style={{ aspectRatio: '3 / 5' }}>
+                                  {firstNode?.data.screenshot ? (
+                                    <img
+                                      src={firstNode.data.screenshot}
+                                      alt={p.name}
+                                      loading="lazy"
+                                      decoding="async"
+                                      draggable={false}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <span className="text-3xl opacity-60">📑</span>
+                                  )}
+                                  <span className="absolute top-1.5 left-1.5 text-[10px] bg-amber-600 text-white rounded px-1.5 py-0.5 font-medium">Tab</span>
+                                </div>
+                                <div style={{ padding: '8px 10px' }}>
+                                  <div className="text-xs font-medium text-amber-200 truncate" title={p.name}>{p.name}</div>
+                                  <div className="text-[10px] text-slate-500">切换 Tab</div>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     )}
-                    {groupNodes.map((n) => (
-                      <button
-                        key={n.id}
-                        onClick={() => { handleSelectTarget(n.id); setSearchText(''); }}
-                        className="w-full text-left text-base text-slate-300 hover:bg-slate-700 rounded-xl transition-colors flex items-center gap-3"
-                        style={{ padding: '12px 16px' }}
-                      >
-                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                          n.data.nodeStyle === 'success' ? 'bg-emerald-500' :
-                          n.data.nodeStyle === 'error' ? 'bg-red-500' :
-                          n.data.nodeStyle === 'warning' ? 'bg-amber-500' : 'bg-slate-500'
-                        }`} />
-                        <span className="font-medium">{n.data.title}</span>
-                        <span className="text-sm text-slate-500">{n.data.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                ));
+                    {filteredNodes.length > 0 && (
+                      <div>
+                        {otherProjects.length > 0 && (
+                          <div className="text-xs font-medium text-slate-400" style={{ padding: '0 4px 10px' }}>
+                            本页面节点
+                          </div>
+                        )}
+                        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
+                          {filteredNodes.map((n) => (
+                            <button
+                              key={n.id}
+                              onClick={() => { handleSelectTarget(n.id); setSearchText(''); }}
+                              className="group flex flex-col rounded-xl overflow-hidden border border-slate-700 bg-slate-900/40 hover:border-teal-400 hover:bg-teal-950/30 transition-colors text-left"
+                            >
+                              <div className="bg-slate-950 relative" style={{ aspectRatio: '3 / 5' }}>
+                                {n.data.screenshot ? (
+                                  <img
+                                    src={n.data.screenshot}
+                                    alt={n.data.title}
+                                    loading="lazy"
+                                    decoding="async"
+                                    draggable={false}
+                                    className="w-full h-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex flex-col items-center justify-center h-full gap-2 px-2">
+                                    <span className={`w-3 h-3 rounded-full ${styleColor(n.data.nodeStyle)}`} />
+                                    <span className="text-[10px] text-slate-500 text-center line-clamp-2">
+                                      {n.data.title}
+                                    </span>
+                                  </div>
+                                )}
+                                <span
+                                  className={`absolute top-1.5 left-1.5 w-2 h-2 rounded-full ring-2 ring-slate-950 ${styleColor(n.data.nodeStyle)}`}
+                                  title={n.data.nodeStyle}
+                                />
+                              </div>
+                              <div style={{ padding: '8px 10px' }}>
+                                <div className="text-xs font-medium text-slate-200 truncate" title={n.data.title}>
+                                  {n.data.title}
+                                </div>
+                                {n.data.description && (
+                                  <div className="text-[10px] text-slate-500 truncate" title={n.data.description}>
+                                    {n.data.description}
+                                  </div>
+                                )}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
               })()}
             </div>
           </div>
