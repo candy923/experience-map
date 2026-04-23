@@ -8,11 +8,17 @@ import {
   type OnConnect,
 } from '@xyflow/react';
 import { v4 as uuidv4 } from 'uuid';
-import type { FlowNode, FlowEdge, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording } from '../types';
+import type { FlowNode, FlowEdge, FlowEdgeData, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording, NodeVersion, NodeExperiment } from '../types';
 import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
 
 interface HistoryEntry {
+  nodes: FlowNode[];
+  edges: FlowEdge[];
+}
+
+interface ClipboardData {
+  sourceProjectId: string;
   nodes: FlowNode[];
   edges: FlowEdge[];
 }
@@ -34,10 +40,12 @@ interface FlowStore {
   highlightedEdges: string[];
   chatMessages: ChatMessage[];
   editingNodeId: string | null;
+  historyNodeId: string | null;
   pathRecording: PathRecording | null;
   ready: boolean;
   past: HistoryEntry[];
   future: HistoryEntry[];
+  clipboard: ClipboardData | null;
 
   getActiveProject: () => FlowProject;
 
@@ -52,15 +60,31 @@ interface FlowStore {
   deleteProject: (id: string) => void;
 
   setSelectedNode: (nodeId: string | null) => void;
+  setPrimarySelection: (nodeId: string | null) => void;
   toggleNodeSelection: (nodeId: string) => void;
   setEditingNode: (nodeId: string | null) => void;
+  setHistoryNode: (nodeId: string | null) => void;
   updateNodeData: (nodeId: string, data: Partial<FlowNode['data']>) => void;
+  /** Patch only the history-panel "current" meta fields (currentNote / updatedAt) without
+   * bumping the auto-managed `updatedAt` like a normal content edit would. */
+  updateNodeCurrentMeta: (nodeId: string, patch: { currentNote?: string; updatedAt?: string }) => void;
+  addNodeVersion: (nodeId: string, version: Omit<NodeVersion, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) => void;
+  updateNodeVersion: (nodeId: string, versionId: string, patch: Partial<Omit<NodeVersion, 'id' | 'createdAt'>>) => void;
+  restoreNodeVersion: (nodeId: string, versionId: string, archiveCurrent?: boolean) => void;
+  deleteNodeVersion: (nodeId: string, versionId: string) => void;
+  addNodeExperiment: (nodeId: string, experiment: Omit<NodeExperiment, 'id' | 'createdAt'> & { id?: string; createdAt?: string }) => void;
+  updateNodeExperiment: (nodeId: string, experimentId: string, patch: Partial<NodeExperiment>) => void;
+  deleteNodeExperiment: (nodeId: string, experimentId: string) => void;
   addNode: (position: { x: number; y: number }) => void;
   importNodes: (nodes: FlowNode[], edges: FlowEdge[]) => void;
   duplicateNode: (nodeId: string) => void;
   deleteNode: (nodeId: string) => void;
   deleteEdge: (edgeId: string) => void;
   updateEdgeLabel: (edgeId: string, label: string) => void;
+
+  copySelection: () => number;
+  cutSelection: () => number;
+  pasteClipboard: () => number;
 
   previewEdgeSync: (projectId?: string) => { toAdd: number; toRemove: number };
   syncEdgesFromHotspots: (projectId?: string) => void;
@@ -116,10 +140,12 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   highlightedEdges: [],
   chatMessages: [],
   editingNodeId: null,
+  historyNodeId: null,
   pathRecording: null,
   ready: false,
   past: [],
   future: [],
+  clipboard: null,
 
   getActiveProject: () => {
     const { projects, activeProjectId } = get();
@@ -213,6 +239,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       highlightedPath: [],
       highlightedEdges: [],
       editingNodeId: null,
+      historyNodeId: null,
       past: [],
       future: [],
       projects: get().projects.map((p) =>
@@ -232,7 +259,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
         id: `node-${uuidv4().slice(0, 8)}`,
         type: 'custom',
         position: { x: 300, y: 200 },
-        data: { title: name, description: '起始页面', nodeStyle: 'default' },
+        data: { title: name, description: '起始页面', nodeStyle: 'default', updatedAt: new Date().toISOString() },
       }],
       edges: [],
       scenarioRules: [],
@@ -271,6 +298,14 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     });
   },
 
+  // Update only the "primary" selection (the one displayed in the side
+  // panel) without altering each node's `selected` flag. Used during
+  // shift-click multi-select where ReactFlow itself is responsible for
+  // adding the clicked node to the selection set.
+  setPrimarySelection: (nodeId) => {
+    set({ selectedNodeId: nodeId });
+  },
+
   toggleNodeSelection: (nodeId) => {
     const { activeProjectId } = get();
     const project = get().getActiveProject();
@@ -290,15 +325,246 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({ editingNodeId: nodeId });
   },
 
+  setHistoryNode: (nodeId) => {
+    set({ historyNodeId: nodeId });
+  },
+
   updateNodeData: (nodeId, data) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    const nowIso = new Date().toISOString();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, ...data, updatedAt: nowIso } }
+            : node
+        ),
+      })),
+    });
+  },
+
+  updateNodeCurrentMeta: (nodeId, patch) => {
     pushHistory();
     const { activeProjectId } = get();
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
         nodes: p.nodes.map((node) =>
-          node.id === nodeId ? { ...node, data: { ...node.data, ...data } } : node
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  // Use `in` so an explicit `undefined` can clear the field.
+                  ...('currentNote' in patch ? { currentNote: patch.currentNote } : {}),
+                  ...('updatedAt' in patch ? { updatedAt: patch.updatedAt } : {}),
+                },
+              }
+            : node
         ),
+      })),
+    });
+  },
+
+  addNodeVersion: (nodeId, version) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    const fullVersion: NodeVersion = {
+      id: version.id || `ver-${uuidv4().slice(0, 8)}`,
+      createdAt: version.createdAt || new Date().toISOString(),
+      name: version.name,
+      note: version.note,
+      snapshot: version.snapshot,
+    };
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  versions: [fullVersion, ...(node.data.versions || [])],
+                },
+              }
+            : node
+        ),
+      })),
+    });
+  },
+
+  updateNodeVersion: (nodeId, versionId, patch) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const list = node.data.versions || [];
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              versions: list.map((v) =>
+                v.id === versionId
+                  ? {
+                      ...v,
+                      ...patch,
+                      // Preserve immutable identity + createdAt, but allow
+                      // patching the nested snapshot shallowly.
+                      id: v.id,
+                      createdAt: v.createdAt,
+                      snapshot: patch.snapshot ? { ...v.snapshot, ...patch.snapshot } : v.snapshot,
+                    }
+                  : v
+              ),
+            },
+          };
+        }),
+      })),
+    });
+  },
+
+  restoreNodeVersion: (nodeId, versionId, archiveCurrent = true) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const target = node.data.versions?.find((v) => v.id === versionId);
+          if (!target) return node;
+          // Auto-archive the current state as a new version so "restore" is
+          // never destructive. This keeps the timeline honest when users
+          // hop between versions to compare results.
+          const archived: NodeVersion | null = archiveCurrent
+            ? {
+                id: `ver-${uuidv4().slice(0, 8)}`,
+                name: '还原前自动保存',
+                createdAt: new Date().toISOString(),
+                note: `自动存档于还原「${target.name}」之前`,
+                snapshot: {
+                  title: node.data.title,
+                  description: node.data.description,
+                  screenshot: node.data.screenshot,
+                  metrics: node.data.metrics,
+                },
+              }
+            : null;
+          const versions = archived
+            ? [archived, ...(node.data.versions || [])]
+            : node.data.versions;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              title: target.snapshot.title ?? node.data.title,
+              description: target.snapshot.description ?? node.data.description,
+              screenshot: target.snapshot.screenshot,
+              metrics: target.snapshot.metrics,
+              updatedAt: new Date().toISOString(),
+              versions,
+            },
+          };
+        }),
+      })),
+    });
+  },
+
+  deleteNodeVersion: (nodeId, versionId) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const next = (node.data.versions || []).filter((v) => v.id !== versionId);
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              versions: next.length > 0 ? next : undefined,
+            },
+          };
+        }),
+      })),
+    });
+  },
+
+  addNodeExperiment: (nodeId, experiment) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    const full: NodeExperiment = {
+      id: experiment.id || `exp-${uuidv4().slice(0, 8)}`,
+      createdAt: experiment.createdAt || new Date().toISOString(),
+      name: experiment.name,
+      period: experiment.period,
+      summary: experiment.summary,
+      variants: experiment.variants,
+      segments: experiment.segments,
+    };
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) =>
+          node.id === nodeId
+            ? {
+                ...node,
+                data: {
+                  ...node.data,
+                  experiments: [full, ...(node.data.experiments || [])],
+                },
+              }
+            : node
+        ),
+      })),
+    });
+  },
+
+  updateNodeExperiment: (nodeId, experimentId, patch) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const list = node.data.experiments || [];
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              experiments: list.map((e) => (e.id === experimentId ? { ...e, ...patch, id: e.id, createdAt: e.createdAt } : e)),
+            },
+          };
+        }),
+      })),
+    });
+  },
+
+  deleteNodeExperiment: (nodeId, experimentId) => {
+    pushHistory();
+    const { activeProjectId } = get();
+    set({
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.map((node) => {
+          if (node.id !== nodeId) return node;
+          const next = (node.data.experiments || []).filter((e) => e.id !== experimentId);
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              experiments: next.length > 0 ? next : undefined,
+            },
+          };
+        }),
       })),
     });
   },
@@ -310,7 +576,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       id: `node-${uuidv4().slice(0, 8)}`,
       type: 'custom',
       position,
-      data: { title: '新节点', description: '点击编辑', nodeStyle: 'default' },
+      data: { title: '新节点', description: '点击编辑', nodeStyle: 'default', updatedAt: new Date().toISOString() },
     };
     set({
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
@@ -361,12 +627,145 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({
       selectedNodeId: get().selectedNodeId === nodeId ? null : get().selectedNodeId,
       editingNodeId: get().editingNodeId === nodeId ? null : get().editingNodeId,
+      historyNodeId: get().historyNodeId === nodeId ? null : get().historyNodeId,
       projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
         ...p,
         nodes: p.nodes.filter((n) => n.id !== nodeId),
         edges: p.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
       })),
     });
+  },
+
+  // Copy currently-selected nodes (falls back to `selectedNodeId` when no
+  // multi-selection exists) into an in-memory clipboard. The clipboard
+  // also captures any edges fully contained in the selection so that the
+  // sub-graph round-trips. Returns the number of nodes copied.
+  copySelection: () => {
+    const project = get().getActiveProject();
+    let selectedIds = new Set(project.nodes.filter((n) => n.selected).map((n) => n.id));
+    if (selectedIds.size === 0 && get().selectedNodeId) {
+      selectedIds = new Set([get().selectedNodeId!]);
+    }
+    if (selectedIds.size === 0) return 0;
+    const nodes = project.nodes
+      .filter((n) => selectedIds.has(n.id))
+      .map((n) => JSON.parse(JSON.stringify(n)) as FlowNode);
+    const edges = project.edges
+      .filter((e) => selectedIds.has(e.source) && selectedIds.has(e.target))
+      .map((e) => JSON.parse(JSON.stringify(e)) as FlowEdge);
+    set({
+      clipboard: {
+        sourceProjectId: project.id,
+        nodes,
+        edges,
+      },
+    });
+    return nodes.length;
+  },
+
+  cutSelection: () => {
+    const count = get().copySelection();
+    if (count === 0) return 0;
+    const clip = get().clipboard;
+    if (!clip) return 0;
+    pushHistory();
+    const ids = new Set(clip.nodes.map((n) => n.id));
+    const { activeProjectId, selectedNodeId, editingNodeId } = get();
+    set({
+      selectedNodeId: selectedNodeId && ids.has(selectedNodeId) ? null : selectedNodeId,
+      editingNodeId: editingNodeId && ids.has(editingNodeId) ? null : editingNodeId,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: p.nodes.filter((n) => !ids.has(n.id)),
+        edges: p.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target)),
+      })),
+    });
+    return count;
+  },
+
+  pasteClipboard: () => {
+    const clip = get().clipboard;
+    if (!clip || clip.nodes.length === 0) return 0;
+    pushHistory();
+    const { activeProjectId } = get();
+    const sameProject = clip.sourceProjectId === activeProjectId;
+
+    // Map original node IDs → freshly minted IDs so internal edges and
+    // hotspots can be rewired into the pasted copy instead of pointing
+    // back at the source nodes.
+    const idMap = new Map<string, string>();
+    for (const n of clip.nodes) {
+      idMap.set(n.id, `node-${uuidv4().slice(0, 8)}`);
+    }
+
+    const newNodes: FlowNode[] = clip.nodes.map((n) => {
+      const newId = idMap.get(n.id)!;
+      const remappedHotspots = n.data.hotspots?.map((hs) => {
+        const remappedTarget = idMap.get(hs.targetNodeId);
+        if (remappedTarget) {
+          return {
+            ...hs,
+            id: `hs-${uuidv4().slice(0, 8)}`,
+            targetNodeId: remappedTarget,
+            targetProjectId: undefined,
+          };
+        }
+        // Hotspot points outside the copied set. When pasting into a
+        // different project we anchor it back to the source project so
+        // the link still resolves; same-project pastes keep the existing
+        // (already-valid) reference.
+        return {
+          ...hs,
+          id: `hs-${uuidv4().slice(0, 8)}`,
+          targetProjectId: sameProject ? hs.targetProjectId : hs.targetProjectId || clip.sourceProjectId,
+        };
+      });
+      return {
+        ...n,
+        id: newId,
+        selected: true,
+        position: { x: n.position.x + 40, y: n.position.y + 40 },
+        data: {
+          ...n.data,
+          hotspots: remappedHotspots,
+        },
+      };
+    });
+
+    const newEdges: FlowEdge[] = clip.edges
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => {
+        // Drop the hotspotId tag — hotspots were re-issued with new IDs
+        // above, so the old tag would be stale; the user can re-run
+        // "从热区生成连线" to restore derived links if desired.
+        let nextData: FlowEdgeData | undefined;
+        if (e.data) {
+          const cleaned: FlowEdgeData = { ...e.data };
+          delete cleaned.hotspotId;
+          if (Object.keys(cleaned).length > 0) nextData = cleaned;
+        }
+        return {
+          ...e,
+          id: `e-${uuidv4().slice(0, 8)}`,
+          source: idMap.get(e.source)!,
+          target: idMap.get(e.target)!,
+          data: nextData,
+        };
+      });
+
+    const firstNewId = newNodes[0]?.id || null;
+    set({
+      selectedNodeId: firstNewId,
+      projects: updateActiveProject(get().projects, activeProjectId, (p) => ({
+        ...p,
+        nodes: [
+          ...p.nodes.map((n) => (n.selected ? { ...n, selected: false } : n)),
+          ...newNodes,
+        ],
+        edges: [...p.edges, ...newEdges],
+      })),
+    });
+    return newNodes.length;
   },
 
   deleteEdge: (edgeId) => {

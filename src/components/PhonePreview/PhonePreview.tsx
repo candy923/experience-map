@@ -17,6 +17,7 @@ export function PhonePreview() {
   const [editMode, setEditMode] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playIndex, setPlayIndex] = useState(0);
+  const [viewingVersionId, setViewingVersionId] = useState<string | null>(null);
   const playTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -60,8 +61,46 @@ export function PhonePreview() {
     return nodes.find((n) => n.id === activeNodeId);
   }, [nodes, activeNodeId]);
 
-  const hotspots = activeNode?.data.hotspots || [];
-  const hasScreenshot = !!activeNode?.data.screenshot;
+  // Reset "viewing a historical version" state whenever the user picks a
+  // different node, so the selection doesn't carry over between nodes.
+  useEffect(() => {
+    setViewingVersionId(null);
+  }, [activeNodeId]);
+
+  // If the path-playback kicks in, we want the phone to show the real
+  // current state of each node along the path, not a frozen snapshot.
+  useEffect(() => {
+    if (highlightedPath.length > 1) setViewingVersionId(null);
+  }, [highlightedPath]);
+
+  const viewingVersion = useMemo(() => {
+    if (!viewingVersionId || !activeNode) return null;
+    return activeNode.data.versions?.find((v) => v.id === viewingVersionId) || null;
+  }, [viewingVersionId, activeNode]);
+
+  // When viewing a historical version, hotspots don't apply (the snapshot
+  // doesn't persist them, and the old screenshot's coordinates wouldn't
+  // line up with the current hotspots anyway). Force-exit edit mode too.
+  useEffect(() => {
+    if (viewingVersion) setEditMode(false);
+  }, [viewingVersion]);
+
+  const displayData = useMemo(() => {
+    if (!activeNode) return null;
+    if (viewingVersion) {
+      return {
+        title: viewingVersion.snapshot.title ?? activeNode.data.title,
+        description: viewingVersion.snapshot.description ?? activeNode.data.description,
+        screenshot: viewingVersion.snapshot.screenshot,
+        metrics: viewingVersion.snapshot.metrics,
+        nodeStyle: activeNode.data.nodeStyle,
+      };
+    }
+    return activeNode.data;
+  }, [activeNode, viewingVersion]);
+
+  const hotspots = viewingVersion ? [] : activeNode?.data.hotspots || [];
+  const hasScreenshot = !!displayData?.screenshot;
 
   const toPercent = useCallback((clientX: number, clientY: number) => {
     if (!screenRef.current) return { x: 0, y: 0 };
@@ -73,11 +112,14 @@ export function PhonePreview() {
   }, []);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (!editMode || !activeNode?.data.screenshot) return;
+    // Hotspot drawing is strictly a "current" operation; in version-preview
+    // mode, `viewingVersion` forces edit mode off so this branch is a
+    // belt-and-suspenders guard against stale clicks.
+    if (!editMode || viewingVersion || !activeNode?.data.screenshot) return;
     e.preventDefault();
     const p = toPercent(e.clientX, e.clientY);
     setDrawing({ startX: p.x, startY: p.y, curX: p.x, curY: p.y });
-  }, [editMode, activeNode, toPercent]);
+  }, [editMode, viewingVersion, activeNode, toPercent]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     const p = toPercent(e.clientX, e.clientY);
@@ -203,12 +245,12 @@ export function PhonePreview() {
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
         >
-          {activeNode ? (
-            activeNode.data.screenshot ? (
+          {activeNode && displayData ? (
+            displayData.screenshot ? (
               <>
                 <img
-                  src={activeNode.data.screenshot}
-                  alt={activeNode.data.title}
+                  src={displayData.screenshot}
+                  alt={displayData.title}
                   className="w-full h-full object-cover pointer-events-none select-none"
                   draggable={false}
                 />
@@ -314,23 +356,25 @@ export function PhonePreview() {
               <div className="flex flex-col items-center justify-center h-full bg-gradient-to-b from-slate-900 to-slate-950 px-6">
                 <div className={`
                   w-16 h-16 rounded-2xl flex items-center justify-center mb-4
-                  ${activeNode.data.nodeStyle === 'success' ? 'bg-emerald-900/50' :
-                    activeNode.data.nodeStyle === 'error' ? 'bg-red-900/50' :
-                    activeNode.data.nodeStyle === 'warning' ? 'bg-amber-900/50' :
+                  ${displayData.nodeStyle === 'success' ? 'bg-emerald-900/50' :
+                    displayData.nodeStyle === 'error' ? 'bg-red-900/50' :
+                    displayData.nodeStyle === 'warning' ? 'bg-amber-900/50' :
                     'bg-blue-900/50'}
                 `}>
                   <svg className={`w-8 h-8 ${
-                    activeNode.data.nodeStyle === 'success' ? 'text-emerald-400' :
-                    activeNode.data.nodeStyle === 'error' ? 'text-red-400' :
-                    activeNode.data.nodeStyle === 'warning' ? 'text-amber-400' :
+                    displayData.nodeStyle === 'success' ? 'text-emerald-400' :
+                    displayData.nodeStyle === 'error' ? 'text-red-400' :
+                    displayData.nodeStyle === 'warning' ? 'text-amber-400' :
                     'text-blue-400'
                   }`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-white mb-1.5">{activeNode.data.title}</h3>
-                <p className="text-sm text-slate-400 text-center">{activeNode.data.description}</p>
-                <p className="text-xs text-slate-600 mt-6">双击流程节点可上传UI截图</p>
+                <h3 className="text-lg font-semibold text-white mb-1.5">{displayData.title}</h3>
+                <p className="text-sm text-slate-400 text-center">{displayData.description}</p>
+                {!viewingVersion && (
+                  <p className="text-xs text-slate-600 mt-6">双击流程节点可上传UI截图</p>
+                )}
               </div>
             )
           ) : (
@@ -352,17 +396,24 @@ export function PhonePreview() {
 
       {/* Controls below phone — fixed height to prevent layout shift */}
       <div style={{ marginTop: 24 }} className="flex flex-col items-center gap-4 w-[320px] min-h-[140px] shrink-0">
-        {activeNode && (
+        {activeNode && displayData && (
           <div className="text-center">
-            <p className="text-sm font-medium text-slate-300">{activeNode.data.title}</p>
-            <p className="text-xs text-slate-500 mt-0.5">{activeNode.data.description}</p>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-sm font-medium text-slate-300">{displayData.title}</p>
+              {viewingVersion && (
+                <span className="text-[10px] text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-0.5">
+                  预览·{viewingVersion.name}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">{displayData.description}</p>
           </div>
         )}
 
         {/* Metrics cards */}
-        {activeNode?.data.metrics && activeNode.data.metrics.length > 0 && (
+        {displayData?.metrics && displayData.metrics.length > 0 && (
           <div className="flex flex-wrap gap-3 justify-center w-full">
-            {activeNode.data.metrics.map((m) => (
+            {displayData.metrics.map((m) => (
               <div key={m.id} className="px-5 py-3 bg-slate-800/80 border border-slate-700 rounded-lg text-center min-w-[90px]">
                 <div className="text-xs text-slate-500">{m.label}</div>
                 <div className="text-base font-semibold text-slate-200 mt-1">{m.value}</div>
@@ -371,8 +422,38 @@ export function PhonePreview() {
           </div>
         )}
 
-        {/* Edit mode toggle */}
-        {hasScreenshot && !highlightedPath.length && (
+        {/* Version switcher: lightweight read-only browser for historical versions */}
+        {activeNode && (activeNode.data.versions?.length ?? 0) > 0 && !highlightedPath.length && (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 max-w-full">
+            <button
+              onClick={() => setViewingVersionId(null)}
+              className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${
+                !viewingVersionId
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+              }`}
+            >
+              当前
+            </button>
+            {activeNode.data.versions!.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => setViewingVersionId(v.id)}
+                title={v.note || v.name}
+                className={`text-[11px] px-2.5 py-1 rounded-md transition-colors max-w-[120px] truncate ${
+                  viewingVersionId === v.id
+                    ? 'bg-amber-500/30 text-amber-200 border border-amber-400/40'
+                    : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                }`}
+              >
+                {v.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Edit mode toggle — only meaningful when viewing the current version */}
+        {hasScreenshot && !viewingVersion && !highlightedPath.length && (
           <button
             onClick={() => { setEditMode(!editMode); setDrawing(null); setSelectingTarget(null); setDragging(null); setResizing(null); }}
             className={`mt-1 px-3 py-1.5 text-xs rounded-lg transition-colors ${

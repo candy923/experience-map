@@ -29,6 +29,7 @@ const styleConfig = {
 function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const setEditingNode = useFlowStore((s) => s.setEditingNode);
+  const setHistoryNode = useFlowStore((s) => s.setHistoryNode);
   const pathRecording = useFlowStore((s) => s.pathRecording);
 
   const isHighlighted = highlightedPath.includes(id);
@@ -39,15 +40,28 @@ function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
   const isInRecording = recordingIndex >= 0;
   const isRecording = !!pathRecording;
 
+  const archiveCount = (data.versions?.length || 0) + (data.experiments?.length || 0);
+
   const handleDoubleClick = useCallback(() => {
     if (isRecording) return;
     setEditingNode(id);
   }, [id, setEditingNode, isRecording]);
 
+  const handleHistoryClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isRecording) return;
+      setHistoryNode(id);
+    },
+    [id, setHistoryNode, isRecording]
+  );
+
+  const rightPadding = archiveCount > 0 ? 76 : 40;
+
   return (
     <div
       onDoubleClick={handleDoubleClick}
-      style={{ paddingLeft: 16, paddingRight: 40, paddingTop: 12, paddingBottom: 12, opacity: isDimmed ? 0.25 : 1 }}
+      style={{ paddingLeft: 16, paddingRight: rightPadding, paddingTop: 12, paddingBottom: 12, opacity: isDimmed ? 0.25 : 1 }}
       className={`
         relative rounded-lg border min-w-[140px]
         transition-all duration-200
@@ -66,13 +80,29 @@ function CustomNodeComponent({ data, id, selected }: NodeProps<FlowNode>) {
         </div>
       )}
       <Handle type="target" position={Position.Top} className="!bg-slate-500" />
-      {data.screenshot && (
-        <div className="absolute top-2 right-2 w-3.5 h-3.5 rounded-sm bg-slate-700/60 flex items-center justify-center">
-          <svg className="w-2.5 h-2.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-        </div>
-      )}
+      <div className="absolute top-2 right-2 flex items-center gap-1.5 z-10">
+        {archiveCount > 0 && (
+          <button
+            onClick={handleHistoryClick}
+            onDoubleClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            title="查看历史版本 / 实验记录"
+            className="nodrag flex items-center gap-1 text-[10px] leading-none px-1.5 py-1 rounded bg-slate-700/70 hover:bg-slate-600 text-slate-200 border border-slate-600/60 transition-colors"
+          >
+            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            历史 {archiveCount}
+          </button>
+        )}
+        {data.screenshot && (
+          <div className="w-3.5 h-3.5 rounded-sm bg-slate-700/60 flex items-center justify-center">
+            <svg className="w-2.5 h-2.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+        )}
+      </div>
       <div className="flex items-start gap-2">
         <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${style.indicator}`} />
         <div className="min-w-0">

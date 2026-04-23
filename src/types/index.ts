@@ -17,6 +17,50 @@ export interface NodeMetric {
   value: string;
 }
 
+export interface NodeVersionSnapshot {
+  title?: string;
+  description?: string;
+  screenshot?: string;
+  metrics?: NodeMetric[];
+}
+
+export interface NodeVersion {
+  id: string;
+  name: string;
+  createdAt: string;
+  note?: string;
+  snapshot: NodeVersionSnapshot;
+}
+
+export interface ExperimentVariant {
+  id: string;
+  name: string;
+  role: 'control' | 'treatment';
+  screenshot?: string;
+  metrics?: NodeMetric[];
+}
+
+export interface ExperimentSegmentRow {
+  variantId: string;
+  metrics: NodeMetric[];
+}
+
+export interface ExperimentSegment {
+  id: string;
+  name: string;
+  rows: ExperimentSegmentRow[];
+}
+
+export interface NodeExperiment {
+  id: string;
+  name: string;
+  period?: string;
+  summary?: string;
+  createdAt: string;
+  variants: ExperimentVariant[];
+  segments?: ExperimentSegment[];
+}
+
 export interface FlowNodeData {
   title: string;
   description: string;
@@ -24,6 +68,12 @@ export interface FlowNodeData {
   hotspots?: Hotspot[];
   metrics?: NodeMetric[];
   nodeStyle: 'default' | 'success' | 'error' | 'warning';
+  /** Timestamp (ISO) of the last content update, used as the "current" row timestamp in the history panel. */
+  updatedAt?: string;
+  /** User-authored note shown only on the history panel's "current" row — e.g. "2026.04.22 全量". Not rendered on the canvas card. */
+  currentNote?: string;
+  versions?: NodeVersion[];
+  experiments?: NodeExperiment[];
   [key: string]: unknown;
 }
 

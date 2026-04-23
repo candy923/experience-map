@@ -13,6 +13,7 @@ import { useFlowStore } from '../../hooks/useFlowStore';
 import { useActiveProject } from '../../hooks/useActiveProject';
 import { CustomNode } from './CustomNode';
 import { NodeEditPanel } from './NodeEditPanel';
+import { NodeHistoryPanel } from './NodeHistoryPanel';
 import { EdgeEditPanel } from './EdgeEditPanel';
 import { Toolbar } from './Toolbar';
 
@@ -26,7 +27,7 @@ export function FlowEditor() {
   const onEdgesChange = useFlowStore((s) => s.onEdgesChange);
   const onConnect = useFlowStore((s) => s.onConnect);
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
-  const toggleNodeSelection = useFlowStore((s) => s.toggleNodeSelection);
+  const setPrimarySelection = useFlowStore((s) => s.setPrimarySelection);
   const pathRecording = useFlowStore((s) => s.pathRecording);
   const togglePathNode = useFlowStore((s) => s.togglePathNode);
   const setPathDescription = useFlowStore((s) => s.setPathDescription);
@@ -35,17 +36,21 @@ export function FlowEditor() {
   const deleteScenarioRule = useFlowStore((s) => s.deleteScenarioRule);
   const addNode = useFlowStore((s) => s.addNode);
   const duplicateNode = useFlowStore((s) => s.duplicateNode);
+  const copySelection = useFlowStore((s) => s.copySelection);
+  const cutSelection = useFlowStore((s) => s.cutSelection);
+  const pasteClipboard = useFlowStore((s) => s.pasteClipboard);
   const undo = useFlowStore((s) => s.undo);
   const redo = useFlowStore((s) => s.redo);
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
+  const historyNodeId = useFlowStore((s) => s.historyNodeId);
+  const setHistoryNode = useFlowStore((s) => s.setHistoryNode);
   const { screenToFlowPosition } = useReactFlow();
   const prevSelectedRef = useRef<string | null>(null);
 
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
   const lastClickTime = useRef(0);
   const lastClickPos = useRef({ x: 0, y: 0 });
-  const copiedNodeIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     prevSelectedRef.current = selectedNodeId;
@@ -54,33 +59,52 @@ export function FlowEditor() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return;
-      if (editingNodeId || editingEdgeId) return;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+      if (editingNodeId || editingEdgeId || historyNodeId) return;
 
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+      const cmd = e.metaKey || e.ctrlKey;
+
+      if (cmd && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         undo();
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+      if (cmd && e.key === 'z' && e.shiftKey) {
         e.preventDefault();
         redo();
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedNodeId) {
-        copiedNodeIdRef.current = selectedNodeId;
+      if (cmd && (e.key === 'c' || e.key === 'C')) {
+        // Skip the shortcut when the user is actually trying to copy
+        // selected text on the page, otherwise we'd swallow the system
+        // clipboard event and they'd get nothing.
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0) return;
+        e.preventDefault();
+        copySelection();
+        return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'v' && copiedNodeIdRef.current) {
-        duplicateNode(copiedNodeIdRef.current);
+      if (cmd && (e.key === 'x' || e.key === 'X')) {
+        const sel = window.getSelection();
+        if (sel && sel.toString().length > 0) return;
+        e.preventDefault();
+        cutSelection();
+        return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === 'd' && selectedNodeId) {
+      if (cmd && (e.key === 'v' || e.key === 'V')) {
+        e.preventDefault();
+        pasteClipboard();
+        return;
+      }
+      if (cmd && (e.key === 'd' || e.key === 'D') && selectedNodeId) {
         e.preventDefault();
         duplicateNode(selectedNodeId);
+        return;
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNodeId, editingNodeId, editingEdgeId, duplicateNode, undo, redo]);
+  }, [selectedNodeId, editingNodeId, editingEdgeId, historyNodeId, duplicateNode, undo, redo, copySelection, cutSelection, pasteClipboard]);
 
   const handleNodeClick: NodeMouseHandler = useCallback(
     (event, node) => {
@@ -88,13 +112,17 @@ export function FlowEditor() {
         togglePathNode(node.id);
         return;
       }
-      if (event.shiftKey) {
-        toggleNodeSelection(node.id);
+      // Multi-select via shift / cmd / ctrl is handled by ReactFlow itself
+      // (see `multiSelectionKeyCode` below). We just need to keep the
+      // "primary" selection — used by the side editor panel — pointing at
+      // the most recently clicked node, without disturbing the multi-set.
+      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+        setPrimarySelection(node.id);
       } else {
         setSelectedNode(node.id);
       }
     },
-    [setSelectedNode, toggleNodeSelection, pathRecording, togglePathNode]
+    [setSelectedNode, setPrimarySelection, pathRecording, togglePathNode]
   );
 
   const handlePaneClick = useCallback(
@@ -171,6 +199,8 @@ export function FlowEditor() {
             type: 'default',
           }}
           deleteKeyCode={pathRecording ? [] : ['Backspace', 'Delete']}
+          multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
+          selectionKeyCode="Shift"
           colorMode="dark"
           proOptions={{ hideAttribution: true }}
         >
@@ -239,6 +269,12 @@ export function FlowEditor() {
         )}
       </div>
       {editingNodeId && <NodeEditPanel />}
+      {historyNodeId && (
+        <NodeHistoryPanel
+          nodeId={historyNodeId}
+          onClose={() => setHistoryNode(null)}
+        />
+      )}
       {editingEdgeId && (
         <EdgeEditPanel
           edgeId={editingEdgeId}
