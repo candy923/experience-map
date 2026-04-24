@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, FlowEdgeData, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording, NodeVersion, NodeExperiment } from '../types';
 import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
-import { planPath } from '../services/pathPlanner';
+import { planPath, limitedAll } from '../services/pathPlanner';
 
 interface HistoryEntry {
   nodes: FlowNode[];
@@ -46,6 +46,8 @@ interface FlowStore {
   highlightedPath: string[];
   highlightedEdges: string[];
   chatMessages: ChatMessage[];
+  /** 当前选中的 LLM 模型 id，由 UI 下拉切换，localStorage 持久化。 */
+  selectedModel: string;
   editingNodeId: string | null;
   historyNodeId: string | null;
   pathRecording: PathRecording | null;
@@ -123,11 +125,24 @@ interface FlowStore {
 
   sendChatMessage: (content: string) => Promise<void>;
   clearChat: () => void;
+  setSelectedModel: (model: string) => void;
 
   loadData: (data: ProjectData) => void;
 }
 
 const initialData = loadProjectData();
+
+const DEFAULT_MODEL = 'qwen3.5-35b-a3b';
+const MODEL_STORAGE_KEY = 'llm-model';
+
+function loadInitialModel(): string {
+  if (typeof localStorage === 'undefined') return DEFAULT_MODEL;
+  try {
+    return localStorage.getItem(MODEL_STORAGE_KEY) || DEFAULT_MODEL;
+  } catch {
+    return DEFAULT_MODEL;
+  }
+}
 
 function updateActiveProject(
   projects: FlowProject[],
@@ -153,6 +168,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   highlightedPath: [],
   highlightedEdges: [],
   chatMessages: [],
+  selectedModel: loadInitialModel(),
   editingNodeId: null,
   historyNodeId: null,
   pathRecording: null,
@@ -1065,7 +1081,8 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   },
 
   sendChatMessage: async (content) => {
-    const project = get().getActiveProject();
+    const activeProject = get().getActiveProject();
+    const currentModel = get().selectedModel;
     const userMsg: ChatMessage = {
       id: uuidv4(),
       role: 'user',
@@ -1079,12 +1096,13 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       content: '正在思考...',
       timestamp: Date.now(),
       isPending: true,
+      usedModel: currentModel,
     };
     set({ chatMessages: [...get().chatMessages, userMsg, pendingMsg] });
 
-    const formatPath = (path: string[]) =>
+    const formatPath = (path: string[], projectNodes: FlowNode[]) =>
       path
-        .map((id) => project.nodes.find((n) => n.id === id)?.data.title || id)
+        .map((id) => projectNodes.find((n) => n.id === id)?.data.title || id)
         .join(' → ');
 
     const replacePending = (patch: Partial<ChatMessage>) => {
@@ -1097,12 +1115,20 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       });
     };
 
-    // 关键词兜底：LLM 失败 / 没找到 / 无效路径时统一走这条
+    const updatePendingContent = (text: string) => {
+      set({
+        chatMessages: get().chatMessages.map((m) =>
+          m.id === pendingId ? { ...m, content: text } : m
+        ),
+      });
+    };
+
+    // 关键词兜底：在当前 tab 的 scenarioRules 里用关键词匹配。AI 全部未命中时调用。
     const runFallback = (note: string) => {
-      const matched = matchScenario(content, project.scenarioRules);
+      const matched = matchScenario(content, activeProject.scenarioRules);
       if (matched) {
         const { rule } = matched;
-        const pathNames = formatPath(rule.path);
+        const pathNames = formatPath(rule.path, activeProject.nodes);
         replacePending({
           content: `${note}\n\n${rule.description}\n\n**关键词匹配路径：**\n${pathNames}`,
           matchedPath: rule.path,
@@ -1119,25 +1145,104 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       }
     };
 
+    // --- 第一步：当前 tab 调 LLM ----------------------------------------
     try {
-      const result = await planPath(content, project.nodes, project.edges);
+      const result = await planPath(content, activeProject.nodes, activeProject.edges, {
+        model: currentModel,
+      });
 
-      if (result.path.length > 0) {
-        const pathNames = formatPath(result.path);
+      // 1a. 路径模式命中（可能多条候选）
+      if (result.mode === 'path' && result.candidates.length > 0) {
+        const candidatesWithPreview = result.candidates.map((c) => ({
+          title: c.title,
+          path: c.path,
+          pathPreview: formatPath(c.path, activeProject.nodes),
+          reasoning: c.reasoning,
+        }));
+        const content =
+          candidatesWithPreview.length > 1
+            ? `找到 ${candidatesWithPreview.length} 条相关路径`
+            : `${result.reasoning}\n\n**${candidatesWithPreview[0].title}**\n${candidatesWithPreview[0].pathPreview}`;
         replacePending({
-          content: `${result.reasoning}\n\n**AI 规划路径：**\n${pathNames}`,
-          matchedPath: result.path,
-          pathPreview: pathNames,
+          content,
+          matchedPath: candidatesWithPreview[0].path,
+          pathCandidates: candidatesWithPreview,
           reasoning: result.thinking,
         });
-        get().setHighlightedPath(result.path);
+        // 默认高亮第一条候选（推荐度最高）
+        get().setHighlightedPath(candidatesWithPreview[0].path);
         return;
       }
 
-      // 模型自己说找不到，或者 path 校验失败
+      // 1b. 答案模式命中（直接文字回答，不高亮任何路径）
+      if (result.mode === 'answer' && result.answer) {
+        replacePending({
+          content: result.answer,
+          reasoning: result.thinking,
+          isAnswer: true,
+        });
+        return;
+      }
+
+      // 1c. 当前 tab 返回 none → 进跨 tab 搜索
+      const otherProjects = get().projects.filter((p) => p.id !== activeProject.id);
+
+      if (otherProjects.length > 0) {
+        updatePendingContent(`当前项目没找到，正在搜索其他 ${otherProjects.length} 个项目...`);
+
+        const tasks = otherProjects.map(
+          (proj) => () =>
+            planPath(content, proj.nodes, proj.edges, { model: currentModel })
+              .then((r) => ({ project: proj, result: r, error: null as unknown }))
+              .catch((e) => ({ project: proj, result: null, error: e }))
+        );
+        const crossResults = await limitedAll(tasks, 3);
+
+        // 跨 tab 命中：先看有没有 path 命中（路径类优先于答案类展示路径高亮）
+        const pathHit = crossResults.find(
+          (r) => r.result && r.result.mode === 'path' && r.result.candidates.length > 0
+        );
+        if (pathHit && pathHit.result) {
+          const hitCandidates = pathHit.result.candidates.map((c) => ({
+            title: c.title,
+            path: c.path,
+            pathPreview: formatPath(c.path, pathHit.project.nodes),
+            reasoning: c.reasoning,
+          }));
+          const header =
+            hitCandidates.length > 1
+              ? `在【${pathHit.project.name}】中找到 ${hitCandidates.length} 条路径`
+              : `${pathHit.result.reasoning}\n\n**${hitCandidates[0].title}**\n${hitCandidates[0].pathPreview}`;
+          replacePending({
+            content: header,
+            matchedPath: hitCandidates[0].path,
+            pathCandidates: hitCandidates,
+            reasoning: pathHit.result.thinking,
+            targetProjectId: pathHit.project.id,
+            targetProjectName: pathHit.project.name,
+          });
+          return;
+        }
+
+        const answerHit = crossResults.find(
+          (r) => r.result && r.result.mode === 'answer' && r.result.answer
+        );
+        if (answerHit && answerHit.result && answerHit.result.answer) {
+          replacePending({
+            content: answerHit.result.answer,
+            reasoning: answerHit.result.thinking,
+            isAnswer: true,
+            targetProjectId: answerHit.project.id,
+            targetProjectName: answerHit.project.name,
+          });
+          return;
+        }
+      }
+
+      // --- 第二步：全部未命中 → 关键词兜底 -----------------------------
       const note = result.invalidReason
-        ? `⚠️ AI 返回了无效路径（${result.invalidReason}），已用关键词匹配兜底。`
-        : `⚠️ AI 没找到合适路径${result.reasoning ? `（${result.reasoning}）` : ''}，已用关键词匹配兜底。`;
+        ? `⚠️ AI 在所有项目中均未给出有效结果（当前项目: ${result.invalidReason}），已用关键词匹配兜底。`
+        : `⚠️ AI 在所有项目中都没找到答案${result.reasoning ? `（${result.reasoning}）` : ''}，已用关键词匹配兜底。`;
       runFallback(note);
     } catch (err) {
       runFallback(`⚠️ AI 调用失败（${(err as Error).message}），已用关键词匹配兜底。`);
@@ -1146,6 +1251,15 @@ export const useFlowStore = create<FlowStore>((set, get) => {
 
   clearChat: () => {
     set({ chatMessages: [], highlightedPath: [], highlightedEdges: [] });
+  },
+
+  setSelectedModel: (model) => {
+    try {
+      localStorage.setItem(MODEL_STORAGE_KEY, model);
+    } catch {
+      // localStorage 不可用时静默降级，只更新内存状态
+    }
+    set({ selectedModel: model });
   },
 
   loadData: (data) => {

@@ -39,7 +39,7 @@ export async function callLLM(
   messages: ChatMessage[],
   options: CallLLMOptions = {}
 ): Promise<ChatCompletionResponse> {
-  const { model = 'glm-5', temperature, signal } = options;
+  const { model = 'qwen3.5-35b-a3b', temperature, signal } = options;
 
   const res = await fetch('/api/chat', {
     method: 'POST',

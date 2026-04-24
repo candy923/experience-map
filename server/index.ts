@@ -10,6 +10,7 @@ const TOKEN_RAW = process.env.VENUS_TOKEN || '';
 // Venus 网关要求 Bearer = AccessKeyID@1。允许 .env 里直接写带后缀的完整 token
 // 也允许只写裸 ID，自动补 @1。
 const TOKEN = TOKEN_RAW.includes('@') ? TOKEN_RAW : `${TOKEN_RAW}@1`;
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'qwen3.5-35b-a3b';
 
 if (!TOKEN_RAW) {
   console.warn('[server] ⚠️  VENUS_TOKEN 未配置，/api/chat 会返回 500。请在 .env.local 中设置。');
@@ -25,7 +26,7 @@ app.post('/api/chat', async (req, res) => {
     return;
   }
 
-  const { messages, model = 'glm-5', temperature, response_format } = req.body || {};
+  const { messages, model = DEFAULT_MODEL, temperature, response_format } = req.body || {};
   if (!Array.isArray(messages)) {
     res.status(400).json({ error: 'messages must be an array' });
     return;

@@ -102,11 +102,25 @@ export interface PathRecording {
   path: string[];
 }
 
+export interface PathCandidateMsg {
+  /** 候选路径的简短标题。 */
+  title: string;
+  /** 节点 id 序列。 */
+  path: string[];
+  /** 节点标题拼接成的路径预览（"A → B → C"），由 store 生成，UI 直接显示。 */
+  pathPreview: string;
+  /** 候选的选择理由（可选）。 */
+  reasoning?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'system';
   content: string;
+  /** 单路径消息：场景/关键词 fallback 匹配出的路径。 */
   matchedPath?: string[];
+  /** AI 多候选路径消息：一次返回多条可选路径，用户在气泡里单选高亮。 */
+  pathCandidates?: PathCandidateMsg[];
   timestamp: number;
   /** 模型给出的思考过程（GLM-5 的 reasoning_content）。前端折叠显示。 */
   reasoning?: string;
@@ -118,6 +132,14 @@ export interface ChatMessage {
   isPending?: boolean;
   /** 调用失败时的错误提示。 */
   isError?: boolean;
+  /** AI 找到的路径所在项目 id（只有跨项目命中时才有值）。 */
+  targetProjectId?: string;
+  /** AI 找到的路径所在项目名（用于气泡展示）。 */
+  targetProjectName?: string;
+  /** 此消息是 AI 的纯文字答案（非路径），UI 隐藏"查看路径"按钮。 */
+  isAnswer?: boolean;
+  /** 此条消息使用的模型 id，用于多模型 A/B 观测。 */
+  usedModel?: string;
 }
 
 export interface FlowProject {
