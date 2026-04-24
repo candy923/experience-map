@@ -108,6 +108,16 @@ export interface ChatMessage {
   content: string;
   matchedPath?: string[];
   timestamp: number;
+  /** 模型给出的思考过程（GLM-5 的 reasoning_content）。前端折叠显示。 */
+  reasoning?: string;
+  /** 路径节点的可读名（label → label → ...），仅用于展示。 */
+  pathPreview?: string;
+  /** 走了关键词兜底匹配（说明 LLM 没找到合适路径）。 */
+  isFallback?: boolean;
+  /** LLM 调用还在进行中。 */
+  isPending?: boolean;
+  /** 调用失败时的错误提示。 */
+  isError?: boolean;
 }
 
 export interface FlowProject {

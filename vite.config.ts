@@ -105,8 +105,18 @@ function dataSyncPlugin(): Plugin {
 export default defineConfig({
   plugins: [react(), tailwindcss(), dataSyncPlugin()],
   server: {
+    host: '0.0.0.0',
     watch: {
       ignored: ['**/data.json'],
+    },
+    proxy: {
+      // 把 /api/chat 转发到独立的 Node 后端（server/index.ts）。
+      // 注意：dataSyncPlugin 已在 vite middleware 里挂了 /api/save 和 /data.json，
+      // 所以这里只代理 /api/chat 这一条路径。
+      '/api/chat': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
     },
   },
 })

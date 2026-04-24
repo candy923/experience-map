@@ -1,0 +1,74 @@
+---
+description: 从 Figma page 一键导入节点到体验地图 data.json 时的既定流程与布局规则
+alwaysApply: false
+---
+
+# 从 Figma 导入体验地图节点
+
+当用户说「导入这个 figma page 为节点」「从 fig 一键导入」之类，**不要**手搓 MCP 调用试错。按下列既定方案做。
+
+## 数据获取 —— 只走 Figma REST API
+
+- Figma plugin (`use_figma`) 的返回会在 **~20KB** 处被截断，1.x 的单帧 base64 就超了；不要尝试靠 `exportAsync` 回传。
+- `get_screenshot` 返回的是 ~465×1024 JPEG 低清图，**不是**高清 PNG，仅作业务画面分析用。
+- 正确做法：让用户提供 Figma Personal Access Token（env `FIGMA_TOKEN`），用 `fetch` 调 REST API `https://api.figma.com/v1/images/:fileKey?ids=...&format=png&scale=1`，下载 PNG 转 base64 data URL 嵌到 `data.json`。
+- 写一次性脚本，放在 `.tmp_figma_import/import.mjs`，运行完**立刻删掉临时目录**。
+- 对话里出现过的 token 务必提醒用户去 https://www.figma.com/settings/tokens revoke。
+
+## 业务语义解析 —— 先用 `use_figma` 读 page 结构
+
+Figma 图层名多半是占位（`Frame 2119...`、`首页-长`），**不要**拿来直接当 title。正确步骤：
+
+1. `get_metadata(pageId)` 先列出顶层 FRAME、坐标、尺寸。
+2. `use_figma` 读所有 `TEXT` 节点的 `characters`（真实文本），按 y 坐标从上到下、x 坐标从左到右排。
+3. 通常会发现：
+   - 有 `"路径 N：..."` 这种说明 → 每条路径对应画布上的一行（y 相近的 frame 属于同一路径）。
+   - 每一列 frame 上方会有短文本（"首页" / "切换平台渠道" / "加载失败" / "多标签筛选不出结果"）→ **这些才是业务标题**，用 x 坐标匹配到下方 frame。
+4. 顺便探一下 `connectors`（CONNECTOR 节点）和 `reactions`（原型连线）——若有就照它连边；若全为 0（本仓库场景），就按列标题顺序连线。
+
+## 节点内容规则
+
+- **title**：用从 Figma 文字标签解析出的中文业务名。同名列在不同路径里出现要加路径后缀（如 `专题搜索结果页（手动搜索）`）。
+- **description（辅助标题）**：**一行短句，控制在 12–22 个中文字符**。示例：
+  - ✅ `promo 发现页，可点预置词直搜`
+  - ✅ `单列列表 ↔ 双列网格切换`
+  - ❌ `用户点击排序选项（如「提现券从高到低」「价格从低到高」），结果列表按新维度重新排序。`（太长，卡片会被撑爆）
+- **nodeStyle**：异常态（加载失败 / 空态 / 错误）用 `error`，正常态用 `default`。
+- **screenshot**：完整高清 `data:image/png;base64,...`，scale 1 即可。
+
+## 画布布局规则
+
+实际渲染的 `CustomNode` 带中文 description 宽度约 300–340px，因此：
+
+- **主链纵向**：同一条 user journey 的节点竖向排列，`y` 间距 **240**（容得下 2 行描述 + 连线 label）。
+- **异常分支横出**：从主链对应源节点往右拉，落在下一列 `x + 520`，`y` 与源节点一致。
+- **平行路径另起一列**：多条 user path 各占一竖列，列间距 **520**（branch 所在列到下一主链列 520）。
+- 示意：
+
+  ```
+  x=0（主路径）           x=520（异常分支）      x=1040（并行路径）
+  首页 ──────→ ...        加载失败               首页
+   ↓                                            ↓
+  结果页 ────→ 加载失败                          搜索页
+   ↓                                            ↓
+  已切换平台 ─→ 无结果                           结果页
+   ↓
+  调整排序
+  ```
+
+## 去重防御
+
+每次导入前先读目标 project：
+
+- 若 `nodes.length > 0` 且标题里含 `Frame 21...` / `首页-长` 之类默认名，说明用户之前用过 in-app `FigmaImportModal` 导过；提醒用户或直接按截图 base64 长度匹配清掉旧节点，再导新的。
+- 旧边（引用已删节点的）顺带一起删掉。
+
+## 边（edges）
+
+- 按列标题的业务顺序连线，`type: 'default'`。
+- 每条边的 `label` 写**触发动作**（"点击搜索框" / "选择京东购物" / "网络异常" / "无匹配结果"），不是页面名。
+- 异常分支的 label 用一眼能看出是异常的词（"网络异常" / "无结果"）。
+
+## 目标 project
+
+默认写入 `activeProjectId` 指向的 project；若其名字里含 `test` 或仍为空，直接用；否则先向用户确认「导入现有 project 还是新建」。

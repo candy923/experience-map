@@ -11,6 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { FlowNode, FlowEdge, FlowEdgeData, ScenarioRule, ChatMessage, FlowProject, ProjectData, PathRecording, NodeVersion, NodeExperiment } from '../types';
 import { loadProjectData, loadProjectDataAsync, saveToLocalStorage, saveToFile } from '../services/storage';
 import { matchScenario } from '../services/scenarioMatcher';
+import { planPath } from '../services/pathPlanner';
 
 interface HistoryEntry {
   nodes: FlowNode[];
@@ -32,6 +33,12 @@ const MAX_HISTORY = 50;
 // enough to form a save→broadcast→load→save echo loop. Suppress one save.
 let _suppressNextPersist = false;
 
+interface SessionViewport {
+  x: number;
+  y: number;
+  zoom: number;
+}
+
 interface FlowStore {
   projects: FlowProject[];
   activeProjectId: string;
@@ -46,6 +53,13 @@ interface FlowStore {
   past: HistoryEntry[];
   future: HistoryEntry[];
   clipboard: ClipboardData | null;
+  /**
+   * Per-project viewport remembered for the current session only. NOT persisted
+   * to data.json — see persistIfChanged below. Used by FlowEditor to restore
+   * the canvas position when the user switches between project tabs.
+   */
+  sessionViewports: Record<string, SessionViewport>;
+  setSessionViewport: (projectId: string, viewport: SessionViewport) => void;
 
   getActiveProject: () => FlowProject;
 
@@ -107,7 +121,7 @@ interface FlowStore {
   savePathRecording: () => void;
   cancelPathRecording: () => void;
 
-  sendChatMessage: (content: string) => void;
+  sendChatMessage: (content: string) => Promise<void>;
   clearChat: () => void;
 
   loadData: (data: ProjectData) => void;
@@ -146,6 +160,13 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   past: [],
   future: [],
   clipboard: null,
+  sessionViewports: {},
+
+  setSessionViewport: (projectId, viewport) => {
+    set({
+      sessionViewports: { ...get().sessionViewports, [projectId]: viewport },
+    });
+  },
 
   getActiveProject: () => {
     const { projects, activeProjectId } = get();
@@ -232,21 +253,27 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   switchProject: (id) => {
     const project = get().projects.find((p) => p.id === id);
     if (!project) return;
-    const firstId = project.nodes[0]?.id || null;
+    // Preserve the project's existing selection (lives on nodes[].selected).
+    // Fall back to the first node only if nothing is currently flagged or the
+    // flagged node was deleted while we were away (e.g. by live-sync).
+    const existingSelected = project.nodes.find((n) => n.selected)?.id ?? null;
+    const nextSelected = existingSelected ?? project.nodes[0]?.id ?? null;
     set({
       activeProjectId: id,
-      selectedNodeId: firstId,
+      selectedNodeId: nextSelected,
       highlightedPath: [],
       highlightedEdges: [],
       editingNodeId: null,
       historyNodeId: null,
       past: [],
       future: [],
-      projects: get().projects.map((p) =>
-        p.id === id
-          ? { ...p, nodes: p.nodes.map((n) => ({ ...n, selected: n.id === firstId })) }
-          : p
-      ),
+      projects: existingSelected
+        ? get().projects
+        : get().projects.map((p) =>
+            p.id === id
+              ? { ...p, nodes: p.nodes.map((n) => ({ ...n, selected: n.id === nextSelected })) }
+              : p
+          ),
     });
   },
 
@@ -281,7 +308,8 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   deleteProject: (id) => {
     const remaining = get().projects.filter((p) => p.id !== id);
     if (remaining.length === 0) return;
-    set({ projects: remaining });
+    const { [id]: _removed, ...restViewports } = get().sessionViewports;
+    set({ projects: remaining, sessionViewports: restViewports });
     if (get().activeProjectId === id) {
       get().switchProject(remaining[0].id);
     }
@@ -1036,7 +1064,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
     set({ pathRecording: null });
   },
 
-  sendChatMessage: (content) => {
+  sendChatMessage: async (content) => {
     const project = get().getActiveProject();
     const userMsg: ChatMessage = {
       id: uuidv4(),
@@ -1044,33 +1072,76 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       content,
       timestamp: Date.now(),
     };
+    const pendingId = uuidv4();
+    const pendingMsg: ChatMessage = {
+      id: pendingId,
+      role: 'system',
+      content: '正在思考...',
+      timestamp: Date.now(),
+      isPending: true,
+    };
+    set({ chatMessages: [...get().chatMessages, userMsg, pendingMsg] });
 
-    const result = matchScenario(content, project.scenarioRules);
-
-    let systemMsg: ChatMessage;
-    if (result) {
-      const { rule } = result;
-      const pathNames = rule.path
+    const formatPath = (path: string[]) =>
+      path
         .map((id) => project.nodes.find((n) => n.id === id)?.data.title || id)
         .join(' → ');
-      systemMsg = {
-        id: uuidv4(),
-        role: 'system',
-        content: `${rule.description}\n\n**匹配路径：**\n${pathNames}`,
-        matchedPath: rule.path,
-        timestamp: Date.now(),
-      };
-      get().setHighlightedPath(rule.path);
-    } else {
-      systemMsg = {
-        id: uuidv4(),
-        role: 'system',
-        content: '抱歉，没有找到匹配的场景。',
-        timestamp: Date.now(),
-      };
-    }
 
-    set({ chatMessages: [...get().chatMessages, userMsg, systemMsg] });
+    const replacePending = (patch: Partial<ChatMessage>) => {
+      set({
+        chatMessages: get().chatMessages.map((m) =>
+          m.id === pendingId
+            ? { ...m, ...patch, isPending: false, timestamp: Date.now() }
+            : m
+        ),
+      });
+    };
+
+    // 关键词兜底：LLM 失败 / 没找到 / 无效路径时统一走这条
+    const runFallback = (note: string) => {
+      const matched = matchScenario(content, project.scenarioRules);
+      if (matched) {
+        const { rule } = matched;
+        const pathNames = formatPath(rule.path);
+        replacePending({
+          content: `${note}\n\n${rule.description}\n\n**关键词匹配路径：**\n${pathNames}`,
+          matchedPath: rule.path,
+          pathPreview: pathNames,
+          isFallback: true,
+        });
+        get().setHighlightedPath(rule.path);
+      } else {
+        replacePending({
+          content: `${note}\n\n关键词匹配也未命中任何场景。`,
+          isFallback: true,
+          isError: true,
+        });
+      }
+    };
+
+    try {
+      const result = await planPath(content, project.nodes, project.edges);
+
+      if (result.path.length > 0) {
+        const pathNames = formatPath(result.path);
+        replacePending({
+          content: `${result.reasoning}\n\n**AI 规划路径：**\n${pathNames}`,
+          matchedPath: result.path,
+          pathPreview: pathNames,
+          reasoning: result.thinking,
+        });
+        get().setHighlightedPath(result.path);
+        return;
+      }
+
+      // 模型自己说找不到，或者 path 校验失败
+      const note = result.invalidReason
+        ? `⚠️ AI 返回了无效路径（${result.invalidReason}），已用关键词匹配兜底。`
+        : `⚠️ AI 没找到合适路径${result.reasoning ? `（${result.reasoning}）` : ''}，已用关键词匹配兜底。`;
+      runFallback(note);
+    } catch (err) {
+      runFallback(`⚠️ AI 调用失败（${(err as Error).message}），已用关键词匹配兜底。`);
+    }
   },
 
   clearChat: () => {
@@ -1080,6 +1151,10 @@ export const useFlowStore = create<FlowStore>((set, get) => {
   loadData: (data) => {
     const activeProject = data.projects.find((p) => p.id === data.activeProjectId) || data.projects[0];
     _suppressNextPersist = true;
+    const validIds = new Set(data.projects.map((p) => p.id));
+    const prunedViewports = Object.fromEntries(
+      Object.entries(get().sessionViewports).filter(([k]) => validIds.has(k))
+    );
     set({
       projects: data.projects,
       activeProjectId: activeProject.id,
@@ -1088,6 +1163,7 @@ export const useFlowStore = create<FlowStore>((set, get) => {
       highlightedEdges: [],
       past: [],
       future: [],
+      sessionViewports: prunedViewports,
     });
   },
 };});
@@ -1104,7 +1180,17 @@ let lastPersistedSignature = '';
 
 function persistIfChanged(): void {
   const state = useFlowStore.getState();
-  const data = { projects: state.projects, activeProjectId: state.activeProjectId };
+  // `selected` is a runtime-only UI flag (drives ReactFlow highlight + our
+  // PhonePreview). Strip it before serialization so:
+  //   1) data.json stays clean — clicking different nodes no longer churns
+  //      the file with `"selected": true` diffs.
+  //   2) Refreshing the page resets all selections, because switchProject's
+  //      fallback path picks the first node when nothing is flagged.
+  const cleanedProjects = state.projects.map((p) => ({
+    ...p,
+    nodes: p.nodes.map(({ selected: _selected, ...rest }) => rest as (typeof p.nodes)[number]),
+  }));
+  const data = { projects: cleanedProjects, activeProjectId: state.activeProjectId };
   const signature = JSON.stringify(data);
   if (signature === lastPersistedSignature) return;
   lastPersistedSignature = signature;

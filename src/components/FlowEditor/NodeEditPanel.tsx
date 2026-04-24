@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { useActiveProject } from '../../hooks/useActiveProject';
 import type { NodeMetric } from '../../types';
-import { VERSION_SOFT_LIMIT } from './NodeHistoryPanel';
 
 const nodeStyles = [
   { value: 'default' as const, label: '默认', color: 'bg-slate-500' },
@@ -18,7 +17,6 @@ export function NodeEditPanel() {
   const updateNodeData = useFlowStore((s) => s.updateNodeData);
   const setEditingNode = useFlowStore((s) => s.setEditingNode);
   const setHistoryNode = useFlowStore((s) => s.setHistoryNode);
-  const addNodeVersion = useFlowStore((s) => s.addNodeVersion);
   const deleteNode = useFlowStore((s) => s.deleteNode);
 
   const node = nodes.find((n) => n.id === editingNodeId);
@@ -26,7 +24,6 @@ export function NodeEditPanel() {
   const [description, setDescription] = useState('');
   const [nodeStyle, setNodeStyle] = useState<'default' | 'success' | 'error' | 'warning'>('default');
   const [metrics, setMetrics] = useState<NodeMetric[]>([]);
-  const [saveVersionOpen, setSaveVersionOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -110,28 +107,6 @@ export function NodeEditPanel() {
   }, []);
 
   const currentVersionCount = node?.data.versions?.length || 0;
-
-  const handleSaveAsVersion = useCallback((name: string, note: string) => {
-    if (!editingNodeId || !node) return;
-    if (currentVersionCount >= VERSION_SOFT_LIMIT) {
-      const ok = window.confirm(
-        `该节点已有 ${currentVersionCount} 个历史版本，建议先清理过旧的记录避免 data.json 过大。是否继续保存？`
-      );
-      if (!ok) return;
-    }
-    const validMetrics = metrics.filter((m) => m.label.trim() || m.value.trim());
-    addNodeVersion(editingNodeId, {
-      name: name.trim() || `版本 ${currentVersionCount + 1}`,
-      note: note.trim() || undefined,
-      snapshot: {
-        title,
-        description,
-        screenshot: node.data.screenshot,
-        metrics: validMetrics.length > 0 ? validMetrics : undefined,
-      },
-    });
-    setSaveVersionOpen(false);
-  }, [editingNodeId, node, currentVersionCount, metrics, title, description, addNodeVersion]);
 
   const handleOpenHistory = useCallback(() => {
     if (!editingNodeId) return;
@@ -308,14 +283,6 @@ export function NodeEditPanel() {
               )}
             </button>
             <button
-              onClick={() => setSaveVersionOpen(true)}
-              className="text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
-              style={{ padding: '12px 20px' }}
-              title="把当前编辑的内容存为一条历史版本"
-            >
-              存为历史版本
-            </button>
-            <button
               onClick={() => setEditingNode(null)}
               className="text-base text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-xl transition-colors"
               style={{ padding: '14px 36px' }}
@@ -330,76 +297,6 @@ export function NodeEditPanel() {
               保存
             </button>
           </div>
-        </div>
-      </div>
-      {saveVersionOpen && (
-        <SaveVersionInlineDialog
-          defaultName={`版本 ${currentVersionCount + 1}`}
-          onCancel={() => setSaveVersionOpen(false)}
-          onConfirm={handleSaveAsVersion}
-        />
-      )}
-    </div>
-  );
-}
-
-function SaveVersionInlineDialog({
-  defaultName,
-  onCancel,
-  onConfirm,
-}: {
-  defaultName: string;
-  onCancel: () => void;
-  onConfirm: (name: string, note: string) => void;
-}) {
-  const [name, setName] = useState(defaultName);
-  const [note, setNote] = useState('');
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#1a2332] border border-slate-700 rounded-xl shadow-2xl" style={{ width: 460, padding: 24 }}>
-        <h4 className="text-base font-semibold text-slate-100 mb-1">存为历史版本</h4>
-        <p className="text-xs text-slate-500 mb-4">
-          会把当前编辑面板里的内容（标题 / 描述 / 截图 / 指标）打包为一条历史版本。不会影响你「保存」按钮的最终提交。
-        </p>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">版本名</label>
-            <input
-              autoFocus
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500"
-              style={{ padding: '10px 14px' }}
-              placeholder='例如 "v1 旧方案"'
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">备注（可选）</label>
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={3}
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-100 focus:outline-none focus:border-blue-500 resize-none"
-              style={{ padding: '10px 14px' }}
-              placeholder="改动说明 / 实验结论等"
-            />
-          </div>
-        </div>
-        <div className="flex justify-end gap-3 mt-5">
-          <button
-            onClick={onCancel}
-            className="text-sm text-slate-400 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors"
-            style={{ padding: '10px 22px' }}
-          >
-            取消
-          </button>
-          <button
-            onClick={() => onConfirm(name, note)}
-            className="text-sm text-white bg-blue-600 hover:bg-blue-500 rounded-lg transition-colors"
-            style={{ padding: '10px 22px' }}
-          >
-            保存
-          </button>
         </div>
       </div>
     </div>

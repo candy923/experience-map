@@ -20,7 +20,9 @@ import { Toolbar } from './Toolbar';
 const nodeTypes = { custom: CustomNode };
 
 export function FlowEditor() {
-  const { nodes, edges } = useActiveProject();
+  const activeProject = useActiveProject();
+  const { nodes, edges, id: activeProjectId } = activeProject;
+  const setSessionViewport = useFlowStore((s) => s.setSessionViewport);
   const highlightedPath = useFlowStore((s) => s.highlightedPath);
   const highlightedEdges = useFlowStore((s) => s.highlightedEdges);
   const onNodesChange = useFlowStore((s) => s.onNodesChange);
@@ -45,8 +47,9 @@ export function FlowEditor() {
   const editingNodeId = useFlowStore((s) => s.editingNodeId);
   const historyNodeId = useFlowStore((s) => s.historyNodeId);
   const setHistoryNode = useFlowStore((s) => s.setHistoryNode);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setViewport, getViewport, fitView } = useReactFlow();
   const prevSelectedRef = useRef<string | null>(null);
+  const prevProjectRef = useRef<string | null>(null);
 
   const [editingEdgeId, setEditingEdgeId] = useState<string | null>(null);
   const lastClickTime = useRef(0);
@@ -55,6 +58,34 @@ export function FlowEditor() {
   useEffect(() => {
     prevSelectedRef.current = selectedNodeId;
   }, [selectedNodeId]);
+
+  // Per-project viewport memory: when switching tabs, snapshot the outgoing
+  // project's viewport into the store, then restore the incoming project's
+  // remembered viewport (or fitView on first visit). Without this, ReactFlow
+  // keeps the previous viewport, which often points at empty space because
+  // each project lives in its own coordinate range.
+  // Skip on the very first render — the static `fitView` prop on <ReactFlow>
+  // already handles initial mount, so doing it again here would just trigger
+  // a redundant animation.
+  useEffect(() => {
+    const prev = prevProjectRef.current;
+    prevProjectRef.current = activeProjectId;
+    if (prev === null || prev === activeProjectId) return;
+
+    setSessionViewport(prev, getViewport());
+
+    // Wait one frame so React Flow has measured the new project's nodes
+    // before we ask it to fit them.
+    const raf = requestAnimationFrame(() => {
+      const saved = useFlowStore.getState().sessionViewports[activeProjectId];
+      if (saved) {
+        setViewport(saved, { duration: 250 });
+      } else {
+        fitView({ padding: 0.2, duration: 300 });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeProjectId, setSessionViewport, setViewport, getViewport, fitView]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

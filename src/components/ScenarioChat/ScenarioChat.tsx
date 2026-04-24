@@ -1,6 +1,8 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFlowStore } from '../../hooks/useFlowStore';
 import { useActiveProject } from '../../hooks/useActiveProject';
+import { ChatInput } from './ChatInput';
+import { ChatMessage } from './ChatMessage';
 
 export function ScenarioChat() {
   const { scenarioRules } = useActiveProject();
@@ -9,14 +11,25 @@ export function ScenarioChat() {
   const clearHighlight = useFlowStore((s) => s.clearHighlight);
   const startPathRecording = useFlowStore((s) => s.startPathRecording);
   const reorderScenarioRules = useFlowStore((s) => s.reorderScenarioRules);
+  const chatMessages = useFlowStore((s) => s.chatMessages);
+  const sendChatMessage = useFlowStore((s) => s.sendChatMessage);
+  const clearChat = useFlowStore((s) => s.clearChat);
 
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const dragStartY = useRef(0);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
 
   const activeRuleId = scenarioRules.find(
     (r) => r.path.length === highlightedPath.length && r.path.every((id, i) => id === highlightedPath[i])
   )?.id;
+
+  // 新消息进来自动滚到底
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [chatMessages.length, chatMessages[chatMessages.length - 1]?.content]);
 
   const handleSelect = useCallback(
     (ruleId: string) => {
@@ -29,6 +42,13 @@ export function ScenarioChat() {
       }
     },
     [scenarioRules, activeRuleId, setHighlightedPath, clearHighlight]
+  );
+
+  const handleSend = useCallback(
+    (text: string) => {
+      void sendChatMessage(text);
+    },
+    [sendChatMessage]
   );
 
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -62,9 +82,20 @@ export function ScenarioChat() {
 
   return (
     <div className="flex flex-col h-full bg-[#0d1321]">
-      <div className="flex-1 overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', gap: 16, padding: '40px 32px' }}>
-        <h3 className="text-xl font-semibold text-slate-200">🗺️ 用户场景</h3>
-        <p className="text-sm text-slate-400 mb-2">选择一个用户场景，展示对应的流程。</p>
+      {/* ── 上半：用户场景（主区域，垂直居中分布） ─────────────────────── */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto border-b border-slate-800"
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          gap: 16,
+          padding: '40px 32px',
+        }}
+      >
+        <h3 className="text-xl font-semibold text-slate-200 shrink-0">🗺️ 用户场景</h3>
+        <p className="text-sm text-slate-400 mb-2 shrink-0">选择一个用户场景，展示对应的流程。</p>
 
         {scenarioRules.map((rule, index) => {
           const isActive = activeRuleId === rule.id;
@@ -146,6 +177,44 @@ export function ScenarioChat() {
         >
           取消选中
         </button>
+      </div>
+
+      {/* ── 下半：AI 路径助手（缩小区域，功能开发中） ─────────────────────── */}
+      <div
+        className="shrink-0 flex flex-col"
+        style={{ height: 220, minHeight: 180 }}
+      >
+        <div className="shrink-0 px-4 pt-2.5 pb-2 flex items-center justify-between border-b border-slate-800/60">
+          <div className="flex items-center gap-2">
+            <h3 className="text-xs font-semibold text-slate-300">💬 AI 路径助手</h3>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700/60">
+              开发中
+            </span>
+          </div>
+          {chatMessages.length > 0 && (
+            <button
+              onClick={clearChat}
+              className="text-[11px] text-slate-500 hover:text-slate-300 transition-colors"
+              title="清空对话"
+            >
+              清空
+            </button>
+          )}
+        </div>
+
+        <div ref={chatScrollRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2">
+          {chatMessages.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-center px-3 text-slate-600">
+              <p className="text-[11px] leading-relaxed">
+                功能尚未跑通，敬请期待
+              </p>
+            </div>
+          ) : (
+            chatMessages.map((msg) => <ChatMessage key={msg.id} message={msg} />)
+          )}
+        </div>
+
+        <ChatInput onSend={handleSend} />
       </div>
     </div>
   );
